@@ -158,8 +158,6 @@ def build_and_save_index(chunks: List[Dict[str, Any]]) -> None:
     # ------------------------------------------------------------------
     # STEP 5: Save both files to disk
     # ------------------------------------------------------------------
-    import os
-    from app.config.settings import settings
 
     os.makedirs(os.path.dirname(settings.VECTOR_STORE_PATH), exist_ok=True)
     faiss.write_index(index, index_path)
