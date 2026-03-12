@@ -22,19 +22,13 @@ from app.config.settings import settings
 # LOADING THE MODEL
 # -----------------------------------------------------------------------
 # SentenceTransformer() loads the model into memory.
-# First run: downloads from HuggingFace (needs internet once)
-# Subsequent runs: loads from local cache (no internet needed)
-#
-# We load it ONCE here at module level — not inside each function.
-# Why? Loading a model is slow (~1-2 seconds). If we loaded it inside
-# get_embedding(), every call would take 1-2 extra seconds. Loading once
-# means all calls after the first are instant.
-print("🤖 Loading local embedding model (first time may take a moment)...")
+# Using all-MiniLM-L6-v2: ~80MB, extremely memory efficient for 512MB RAM limits.
+print("🤖 Loading local embedding model (all-MiniLM-L6-v2)...")
 model = SentenceTransformer(settings.LOCAL_EMBEDDING_MODEL)
 print(f"✅ Embedding model loaded: {settings.LOCAL_EMBEDDING_MODEL}")
 
 # Batch size for processing multiple chunks at once
-BATCH_SIZE = 64  # sentence-transformers handles this very fast locally
+BATCH_SIZE = 32  # Reduced batch size slightly for memory safety on Render Free
 
 
 def get_embedding(text: str) -> List[float]:

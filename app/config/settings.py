@@ -49,12 +49,9 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     GROQ_MODEL: str = "llama-3.3-70b-versatile"  # Upgraded: better reasoning over long documents
 
-    # Embedding Settings — LOCAL model (no API needed, runs on your machine!)
-    # Model: BAAI/bge-small-en-v1.5 — 384-dim, better retrieval than MiniLM
-    # (~10-15% improvement on semantic search benchmarks)
-    # NOTE: changing this model invalidates all existing FAISS vectors —
-    # reprocess all documents after changing.
-    LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
+    # Embedding Settings — LOCAL model
+    # Model: sentence-transformers/all-MiniLM-L6-v2 — ~80MB, perfect for Render Free
+    LOCAL_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
     EMBEDDING_DIMENSION: int = 384  # same as MiniLM — no schema change needed
 
     # Vector Store Settings

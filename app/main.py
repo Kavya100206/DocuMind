@@ -17,10 +17,11 @@ What happens here?
 4. We define startup/shutdown events for database connections
 """
 
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from app.config.settings import settings
+from fastapi.responses import FileResponse, JSONResponse
+from app.config.settings import settings, BASE_DIR
 from app.utils.logger import get_logger
 from app.controllers import health_controller
 from app.controllers import document_controller
@@ -49,12 +50,60 @@ app.add_middleware(
 )
 
 # Include routers from controllers
-# This is how we organize our API endpoints
 app.include_router(health_controller.router)
-app.include_router(document_controller.router)  # Document CRUD
-app.include_router(search_controller.router)    # Semantic search
-app.include_router(qa_controller.router)        # Q&A with citations
-app.include_router(system_controller.router)    # System stats ← Phase 7
+app.include_router(document_controller.router)
+app.include_router(search_controller.router)
+app.include_router(qa_controller.router)
+app.include_router(system_controller.router)
+
+# ---------------------------------------------------------------------------
+# GLOBAL EXCEPTION HANDLER
+# ---------------------------------------------------------------------------
+# This ensures that even "hard" crashes (500 errors) return JSON.
+# It prevents the frontend from getting a 500 HTML page from Render/Proxy
+# which causes the "Unexpected token '<'" JSON parsing error.
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"GLOBAL ERROR: {exc}")
+    import traceback
+    logger.error(traceback.format_exc())
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": f"Internal Server Error: {str(exc)}",
+            "type": type(exc).__name__,
+            "message": "The server encountered a problem. Check logs for details."
+        }
+    )
+
+# ---------------------------------------------------------------------------
+# DIAGNOSTIC ENDPOINT
+# ---------------------------------------------------------------------------
+@app.get("/api/system/diag", tags=["System"])
+async def system_diagnostic():
+    """Verify filesystem write permissions for Render persistence."""
+    paths = {
+        "uploads": settings.UPLOAD_DIR,
+        "data": str(BASE_DIR / "data"),
+    }
+    
+    results = {}
+    for name, path in paths.items():
+        exists = os.path.exists(path)
+        writeable = os.access(path, os.W_OK) if exists else "Path not found"
+        results[name] = {
+            "path": path,
+            "exists": exists,
+            "writeable": writeable
+        }
+    
+    return {
+        "status": "diagnostic_complete",
+        "filesystem": results,
+        "memory_limit": "512MB (Render Free)",
+        "embedding_model": settings.LOCAL_EMBEDDING_MODEL
+    }
 
 
 
