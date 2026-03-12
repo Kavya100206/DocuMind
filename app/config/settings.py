@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     ALLOWED_EXTENSIONS: list = [".pdf"]
 
     # Retrieval Settings
-    TOP_K_RESULTS: int = 15             # FAISS candidates per query; with 3 docs × per-doc cap of 5 = fair diversity
+    TOP_K_RESULTS: int = 5             # FAISS candidates per query; with 3 docs × per-doc cap of 5 = fair diversity
     SIMILARITY_THRESHOLD: float = 0.12  # Min cosine similarity; below = irrelevant
     MAX_CHUNKS_PER_DOC: int = 5         # Max chunks any single doc contributes in global search
     RERANKER_TOP_N: int = 4             # Chunks kept after cross-encoder reranking → sent to LLM
