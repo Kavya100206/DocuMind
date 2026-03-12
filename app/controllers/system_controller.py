@@ -113,7 +113,7 @@ def _get_faiss_vector_count() -> int:
         from app.config.settings import settings
         import os
 
-        index_path = os.path.join(settings.FAISS_INDEX_DIR, "faiss_index.index")
+        index_path = os.path.join(settings.VECTOR_STORE_PATH, "faiss_index.index")
         if not os.path.exists(index_path):
             return 0
 
