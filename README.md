@@ -3,8 +3,6 @@
 DocuMind is a multi-document question answering system built using Retrieval-Augmented Generation (RAG).  
 It combines semantic search, lexical ranking, and cross-encoder reranking to generate grounded responses with citations and confidence scores.
 
-Health Check: GET /health
-
 ---
 
 ## Overview
