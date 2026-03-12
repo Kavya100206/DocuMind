@@ -77,14 +77,20 @@ The DocuMind pipeline follows a sophisticated multi-stage retrieval architecture
 
 ## Project Structure
 
-- app/services: Core RAG logic including retrieval, reranking, and LLM processing.
-- app/controllers: API endpoint definitions and route handling.
-- app/models: Database schemas for documents and chunks.
-- app/config: Centralized application settings and environment handling.
-- scripts: Operational utilities for index rebuilding and retrieval testing.
-- frontend: Web interface components.
-- data: Persistent storage for the FAISS vector index.
-- uploads: Temporary storage for document processing.
+```text
+DocuMind/
+├── app/
+│   ├── services/      # Retrieval, reranking, chunking, LLM pipeline
+│   ├── controllers/   # API routes
+│   ├── models/        # Database schema
+│   ├── config/        # Settings and environment handling
+│   └── main.py        # Application entry point
+├── frontend/          # Web interface dashboard
+├── scripts/           # Debug and operational utilities
+├── data/              # FAISS index persistence
+├── uploads/           # Document storage
+└── render.yaml        # Deployment configuration
+```
 
 ---
 

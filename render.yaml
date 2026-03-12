@@ -4,7 +4,7 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    plan: starter           # starter = 512MB RAM, 0.5 CPU — enough for this app
+    plan: free           # starter = 512MB RAM, 0.5 CPU — enough for this app
     healthCheckPath: /health
 
     # Environment variables — set SECRET values in Render dashboard
@@ -37,8 +37,3 @@ services:
       - key: MAX_CHUNKS_PER_DOC
         value: "5"
 
-      - key: TRANSFORMERS_OFFLINE
-        value: "1"
-
-      - key: HF_DATASETS_OFFLINE
-        value: "1"
