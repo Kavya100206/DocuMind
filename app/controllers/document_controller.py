@@ -137,12 +137,16 @@ async def upload_document(
     # BackgroundTasks is FastAPI's built-in mechanism for this.
     # For production scale, we'd use Celery + Redis, but BackgroundTasks
     # is perfect for a single-server setup.
-    background_tasks.add_task(
-        doc_svc.process_document,
-        document_id=doc_id,
-        file_path=file_path,
-        db=db
-    )
+    # background_tasks.add_task(
+    #     doc_svc.process_document,
+    #     document_id=doc_id,
+    #     file_path=file_path,
+    #     db=db
+    # )
+    process_document_bg(
+    document_id=doc_id,
+    file_path=file_path
+)
     logger.info(f"Background ingestion queued for document: {doc_id}")
 
     # ------------------------------------------------------------------
