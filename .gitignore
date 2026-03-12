@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Build
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temp
+*.tmp
+*.temp
+
+# AI / RAG specific
+.cache/
+*.index
+*.meta
+
+# Project storage
+uploads/*
+!uploads/.gitkeep
+
+data/*.index
+data/*.meta
+!data/.gitkeep
+
+# Debug text outputs
+*.txt
+!README.md
