@@ -1,3 +1,6 @@
+# IMPORTANT → CPU torch (must be at top)
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Core FastAPI and Web Framework
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
@@ -12,11 +15,11 @@ alembic==1.13.1
 pydantic==2.5.3
 pydantic-settings==2.1.0
 
-# LLM — Groq API (free tier, fast Llama 3)
+# LLM — Groq API
 groq
 
-# Embeddings — local sentence-transformers (no API key needed!)
-torch==2.2.2
+# Embeddings (CPU safe)
+torch==2.2.2+cpu
 transformers==4.41.2
 sentence-transformers==2.7.0
 
@@ -24,7 +27,7 @@ sentence-transformers==2.7.0
 PyPDF2==3.0.1
 pdfplumber==0.10.3
 
-# Vector Store - FAISS
+# Vector Store
 faiss-cpu==1.7.4
 numpy==1.26.3
 
