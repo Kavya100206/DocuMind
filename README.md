@@ -1,8 +1,8 @@
 # DocuMind: Intelligent Document Question-Answering System (RAG)
 
-DocuMind is a production-oriented Retrieval-Augmented Generation (RAG) system that enables users to upload documents and perform natural language queries. The system achieves high precision by combining semantic search with lexical boosting and cross-encoder reranking, delivering answers grounded in evidence with verifiable citations and confidence scores.
+DocuMind is a multi-document question answering system built using Retrieval-Augmented Generation (RAG).  
+It combines semantic search, lexical ranking, and cross-encoder reranking to generate grounded responses with citations and confidence scores.
 
-Live Deployment: [https://documind.onrender.com](https://documind.onrender.com)
 Health Check: GET /health
 
 ---
