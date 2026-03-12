@@ -420,3 +420,15 @@ async def reprocess_document_endpoint(
 
     logger.info(f"Queued reprocess for document '{document.filename}'")
     return document
+from app.database.postgres import SessionLocal
+
+def process_document_bg(document_id: str, file_path: str):
+    db = SessionLocal()
+    try:
+        doc_svc.process_document(
+            document_id=document_id,
+            file_path=file_path,
+            db=db
+        )
+    finally:
+        db.close()
