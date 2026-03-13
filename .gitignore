@@ -51,5 +51,5 @@ data/*.meta
 # Debug text outputs
 *.txt
 !README.md
-!requirements-prod.txt
+!requirements.txt
 !runtime.txt
