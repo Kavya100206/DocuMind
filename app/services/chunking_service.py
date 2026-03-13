@@ -260,6 +260,11 @@ COLON_HEADER_LINE = re.compile(
     re.MULTILINE
 )
 
+TITLE_CASE_HEADER = re.compile(
+    r'^[A-Z][a-z]+(?:\s[A-Z][a-z]+){0,4}$',
+    re.MULTILINE
+)
+
 
 def _is_likely_header(line: str) -> bool:
     """
@@ -335,7 +340,15 @@ def _detect_sections(text: str) -> List[Dict[str, Any]]:
                 "name":  line.strip().rstrip(":").strip(),
                 "start": match.start()
             })
-
+    # Rule 3: Title Case headers (Projects, Education, Skills, etc.)
+    for match in TITLE_CASE_HEADER.finditer(text):
+        line = match.group()
+        if _is_likely_header(line) and match.start() not in seen_starts:
+            seen_starts.add(match.start())
+            sections.append({
+                "name": line.strip(),
+                "start": match.start()
+            })
     # Sort by position (both rules scan independently)
     sections.sort(key=lambda s: s["start"])
     return sections
@@ -469,64 +482,70 @@ def chunk_by_sections(pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     for i, section in enumerate(sections):
         section_start = section["start"]
-        # The section ends where the next section begins (or end of document)
-        section_end   = sections[i + 1]["start"] if i + 1 < len(sections) else len(full_text)
-        section_text  = full_text[section_start:section_end].strip()
-        section_name  = section["name"]
+        section_end = sections[i + 1]["start"] if i + 1 < len(sections) else len(full_text)
+        section_text = full_text[section_start:section_end].strip()
+        section_name = section["name"]
 
         if not section_text:
             continue
 
-        # Skip stub sections — they are just label lines with no real content.
-        # Their text will be absorbed into the chunk built from the previous
-        # section's span, keeping the label and value together.
-        if len(section_text) < MIN_SECTION_CHARS:
-            print(f"    ⏭  Skipping stub section '{section_name}' ({len(section_text)} chars) — absorbed into surrounding chunk")
-            continue
-
-        # Figure out which page this section STARTS on
-        # (for the citation page_number field)
-        page_number = 1  # default
+    # find page number
+        page_number = 1
         for boundary in page_boundaries:
             if boundary["start_char"] <= section_start < boundary["end_char"]:
                 page_number = boundary["page_number"]
                 break
 
-        # ------------------------------------------------------------------
-        # STEP 4: Chunk the section
-        # ------------------------------------------------------------------
-        # If the section fits in one chunk → keep it whole (ideal case)
-        # If the section is too large     → split it with the sliding window
+    # ⭐ BULLET GROUP SPLIT (GENERIC)
+        bullet_groups = re.split(r'\n(?=[A-Z][^\n]+\n•)', section_text)
+
+        if len(bullet_groups) > 1:
+            for group in bullet_groups:
+                group = group.strip()
+                if not group:
+                    continue
+
+                all_chunks.append({
+                    "page_number": page_number,
+                    "chunk_index": global_chunk_index,
+                    "section_name": section_name,
+                    "text": group,
+                    "start_char": section_start,
+                    "end_char": section_start + len(group),
+                    "char_count": len(group)
+                })
+                global_chunk_index += 1
+            print(f"    ✓ Section '{section_name}' split into {len(bullet_groups)} semantic bullet chunks")
+            continue
+
+    # ⭐ NORMAL SECTION CHUNK
         if len(section_text) <= settings.CHUNK_SIZE:
-            # Section fits as a single chunk — perfect semantic unit
             all_chunks.append({
-                "page_number":  page_number,
-                "chunk_index":  global_chunk_index,
+                "page_number": page_number,
+                "chunk_index": global_chunk_index,
                 "section_name": section_name,
-                "text":         section_text,
-                "start_char":   section_start,
-                "end_char":     section_end,
-                "char_count":   len(section_text)
+                "text": section_text,
+                "start_char": section_start,
+                "end_char": section_end,
+                "char_count": len(section_text)
             })
             global_chunk_index += 1
-            print(f"    ✓ Section '{section_name}': {len(section_text)} chars → 1 chunk")
-
+            print(f"    ✓ Section '{section_name}' → 1 chunk")
         else:
-            # Section is too large — apply sliding window within this section
             sub_chunks = chunk_text(section_text)
             for sub in sub_chunks:
                 all_chunks.append({
-                    "page_number":  page_number,
-                    "chunk_index":  global_chunk_index,
+                    "page_number": page_number,
+                    "chunk_index": global_chunk_index,
                     "section_name": section_name,
-                    "text":         sub["text"],
-                    "start_char":   section_start + sub["start_char"],
-                    "end_char":     section_start + sub["end_char"],
-                    "char_count":   sub["char_count"]
+                    "text": sub["text"],
+                    "start_char": section_start + sub["start_char"],
+                    "end_char": section_start + sub["end_char"],
+                    "char_count": sub["char_count"]
                 })
                 global_chunk_index += 1
-            print(f"    ✓ Section '{section_name}': {len(section_text)} chars → {len(sub_chunks)} sub-chunks (too large for one chunk)")
 
+            print(f"    ✓ Section '{section_name}' → {len(sub_chunks)} sub-chunks")
     print(f"  ✂️  Section-aware chunking: {len(all_chunks)} total chunks from {len(sections)} sections")
     return all_chunks
 
