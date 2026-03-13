@@ -28,6 +28,7 @@ from app.controllers import document_controller
 from app.controllers import search_controller
 from app.controllers import qa_controller
 from app.controllers import system_controller
+from app.services import faiss_service
 
 logger = get_logger(__name__)
 
@@ -164,20 +165,44 @@ async def health_check():
 
 
 # Startup event - runs when the application starts
+# @app.on_event("startup")
+# async def startup_event():
+#     """
+#     Runs when the application starts
+    
+#     What goes here?
+#     ---------------
+#     - Database connection initialization
+#     - Loading ML models
+#     - Cache warming
+#     - Any one-time setup tasks
+#     """
+#     from app.database.postgres import init_db, engine
+#     from app.models import document, chunk  # noqa: F401
+
+#     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
+#     logger.info(f"Debug mode: {settings.DEBUG}")
+
+#     try:
+#         logger.info("Initializing database...")
+#         init_db()
+#         with engine.connect() as conn:
+#             logger.info("Database connection successful")
+#     except Exception as e:
+#         logger.error(f"Database connection failed: {e}")
+#         logger.warning("Application will continue, but database features won't work")
 @app.on_event("startup")
 async def startup_event():
     """
     Runs when the application starts
-    
-    What goes here?
-    ---------------
-    - Database connection initialization
-    - Loading ML models
-    - Cache warming
-    - Any one-time setup tasks
+
+    - DB init
+    - FAISS persistence check
     """
+
     from app.database.postgres import init_db, engine
     from app.models import document, chunk  # noqa: F401
+    import os
 
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info(f"Debug mode: {settings.DEBUG}")
@@ -185,11 +210,27 @@ async def startup_event():
     try:
         logger.info("Initializing database...")
         init_db()
+
         with engine.connect() as conn:
             logger.info("Database connection successful")
+
+        # ⭐ FAISS persistence logic
+        index_path = settings.VECTOR_STORE_PATH + ".index"
+
+        if not os.path.exists(index_path):
+            logger.warning("FAISS index missing — rebuilding from DB...")
+
+            from scripts.rebuild_faiss import rebuild_faiss_index
+            rebuild_faiss_index()
+
+            logger.info("FAISS rebuild completed")
+
+        else:
+            logger.info("FAISS index found — ready")
+
     except Exception as e:
-        logger.error(f"Database connection failed: {e}")
-        logger.warning("Application will continue, but database features won't work")
+        logger.error(f"Startup error: {e}")
+        logger.warning("Application will continue, but some features may not work")
 
 
 # Shutdown event - runs when the application stops
