@@ -269,3 +269,15 @@ def search(query_text: str, k: int = 5) -> List[Dict[str, Any]]:
             "similarity_score": float(distance),  # higher = more relevant
         })
     return results
+
+def index_has_vectors() -> bool:
+    index_path = settings.VECTOR_STORE_PATH + ".index"
+
+    if not os.path.exists(index_path):
+        return False
+
+    try:
+        index = faiss.read_index(index_path)
+        return index.ntotal > 0
+    except:
+        return False

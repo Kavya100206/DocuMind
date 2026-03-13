@@ -193,19 +193,13 @@ async def health_check():
 #         logger.warning("Application will continue, but database features won't work")
 @app.on_event("startup")
 async def startup_event():
-    """
-    Runs when the application starts
-
-    - DB init
-    - FAISS persistence check
-    """
-
     from app.database.postgres import init_db, engine
-    from app.models import document, chunk  # noqa: F401
-    import os
+    from app.models import document, chunk
+    from app.services.faiss_service import index_has_vectors
+    from scripts.rebuild_faiss import rebuild_faiss_index
+    import asyncio
 
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
-    logger.info(f"Debug mode: {settings.DEBUG}")
 
     try:
         logger.info("Initializing database...")
@@ -214,25 +208,18 @@ async def startup_event():
         with engine.connect() as conn:
             logger.info("Database connection successful")
 
-        # ⭐ FAISS persistence logic
-        index_path = settings.VECTOR_STORE_PATH + ".index"
+        # ✅ Proper FAISS health check
+        if not index_has_vectors():
+            logger.warning("FAISS missing or empty — rebuilding")
 
-        if not os.path.exists(index_path):
-            logger.warning("FAISS index missing — rebuilding from DB...")
-
-            from scripts.rebuild_faiss import rebuild_faiss_index
-            rebuild_faiss_index()
+            await asyncio.to_thread(rebuild_faiss_index)
 
             logger.info("FAISS rebuild completed")
-
         else:
-            logger.info("FAISS index found — ready")
+            logger.info("FAISS index valid")
 
     except Exception as e:
         logger.error(f"Startup error: {e}")
-        logger.warning("Application will continue, but some features may not work")
-
-
 # Shutdown event - runs when the application stops
 @app.on_event("shutdown")
 async def shutdown_event():
