@@ -103,7 +103,7 @@ DocuMind provides an enterprise-grade retrieval architecture. It utilizes a soph
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/documind.git
+git clone https://github.com/Kavya100206/DocuMind.git
 cd documind
 ```
 
