@@ -237,12 +237,4 @@ async def shutdown_event():
     # We'll add cleanup code here later
 
 
-# This allows running the app directly with: python app/main.py
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True  # Auto-reload on code changes (development only)
-    )
+
