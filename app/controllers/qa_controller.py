@@ -76,6 +76,13 @@ def ask_question(
             detail="GROQ_API_KEY not configured. Add it to your .env file."
         )
 
+    from app.services import faiss_service
+    if faiss_service.IS_BUILDING:
+        raise HTTPException(
+            status_code=503,
+            detail="The search index is currently being built in the background. Please wait a few moments and try again."
+        )
+
     # Short query guard
     meaningful_words = [w for w in question.split() if len(w) > 1]
     if len(meaningful_words) < 3:

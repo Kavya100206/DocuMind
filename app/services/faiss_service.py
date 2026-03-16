@@ -55,6 +55,8 @@ import faiss
 from typing import List, Dict, Any, Optional
 from app.config.settings import settings
 
+# Global flag to prevent querying while background index build happens
+IS_BUILDING = False
 
 def build_and_save_index(chunks: List[Dict[str, Any]]) -> None:
     """

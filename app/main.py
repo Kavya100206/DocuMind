@@ -208,13 +208,14 @@ async def startup_event():
         with engine.connect() as conn:
             logger.info("Database connection successful")
 
-        # ✅ Proper FAISS health check
+        # ✅ Proper FAISS health check (Non-blocking)
         if not index_has_vectors():
-            logger.warning("FAISS missing or empty — rebuilding")
+            logger.warning("FAISS missing or empty — rebuilding in background")
 
-            await asyncio.to_thread(rebuild_faiss_index)
+            # Fire and forget: run in background so server startup isn't blocked
+            asyncio.create_task(asyncio.to_thread(rebuild_faiss_index))
 
-            logger.info("FAISS rebuild completed")
+            logger.info("FAISS rebuild started in background")
         else:
             logger.info("FAISS index valid")
 

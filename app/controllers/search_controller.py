@@ -102,9 +102,16 @@ def search_documents(
     print(f"\n🔍 Search request: '{q}' (k={k})")
 
     # Check if any documents have been uploaded + indexed
-    # If no FAISS index exists yet, give a helpful error
     import os
     from app.config.settings import settings
+    from app.services import faiss_service
+
+    if faiss_service.IS_BUILDING:
+        raise HTTPException(
+            status_code=503,
+            detail="The search index is currently being built in the background. Please wait a few moments and try again."
+        )
+
     index_path = settings.VECTOR_STORE_PATH + ".index"
     if not os.path.exists(index_path):
         raise HTTPException(

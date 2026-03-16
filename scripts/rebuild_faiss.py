@@ -22,11 +22,17 @@ from app.services import faiss_service
 
 
 def rebuild_faiss_index():
+    from app.utils.logger import get_logger
+    logger = get_logger(__name__)
+    
+    faiss_service.IS_BUILDING = True
+    logger.info("Setting IS_BUILDING = True. Starting background FAISS rebuild.")
+    
     db = SessionLocal()
 
     try:
         docs = db.query(Document).filter(Document.status == "completed").all()
-        print(f"Found {len(docs)} completed documents in DB\n")
+        logger.info(f"Found {len(docs)} completed documents in DB")
 
         all_embedded = []
 
@@ -34,7 +40,7 @@ def rebuild_faiss_index():
             page_chunks = db.query(Chunk).filter(Chunk.document_id == doc.id).all()
 
             if not page_chunks:
-                print(f"SKIP {doc.filename} — no chunks")
+                logger.info(f"SKIP {doc.filename} — no chunks")
                 continue
 
             pages_data = [
@@ -52,37 +58,39 @@ def rebuild_faiss_index():
             for c in section_chunks:
                 c["document_id"] = doc.id
 
-            print(
+            logger.info(
                 f"{doc.filename}: {len(page_chunks)} page → {len(section_chunks)} chunks"
             )
 
             embedded = embed_chunks(section_chunks)
             all_embedded.extend(embedded)
 
-        print(f"\nTotal chunks to index: {len(all_embedded)}")
+        logger.info(f"Total chunks to index: {len(all_embedded)}")
 
         if not all_embedded:
-            print("No data to index")
+            logger.info("No data to index")
             return
 
         # delete old index
         for f in glob.glob(settings.VECTOR_STORE_PATH + ".*"):
             os.remove(f)
-            print(f"Deleted: {f}")
+            logger.info(f"Deleted old index file: {f}")
 
         faiss_service.build_and_save_index(all_embedded)
 
-        print(
-            f"\nSUCCESS: FAISS rebuilt with {len(all_embedded)} vectors"
+        logger.info(
+            f"SUCCESS: FAISS rebuilt with {len(all_embedded)} vectors"
         )
 
     except Exception as e:
         import traceback
-        traceback.print_exc()
+        logger.error(f"CRITICAL ERROR during FAISS rebuild: {e}")
+        logger.error(traceback.format_exc())
 
     finally:
+        faiss_service.IS_BUILDING = False
+        logger.info("Setting IS_BUILDING = False. Background rebuild finished or crashed.")
         db.close()
-
 
 if __name__ == "__main__":
     rebuild_faiss_index()
