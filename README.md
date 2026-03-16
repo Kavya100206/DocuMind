@@ -1,4 +1,4 @@
-# DocuMind 🧠
+# DocuMind
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
@@ -10,7 +10,7 @@ DocuMind converts static PDF repositories into an interactive AI knowledge syste
 
 ---
 
-## 🚀 Demo
+## Demo
 
 - **Live URL:** [Add your live link here]
 - **Video Walkthrough:** [Add YouTube/Loom link here]
@@ -20,7 +20,7 @@ DocuMind converts static PDF repositories into an interactive AI knowledge syste
 
 ---
 
-## ❓ Why DocuMind?
+## Why DocuMind?
 
 Most standard RAG (Retrieval-Augmented Generation) applications fail in production because:
 - **Traditional RAG setups hallucinate** when context is missing.
@@ -32,55 +32,32 @@ DocuMind solves this by implementing an enterprise-grade retrieval architecture.
 
 ---
 
-## 🏗️ Architecture
-
-### System Flow
-```mermaid
-flowchart LR
-    subgraph Frontend
-        UI["Vanilla JS<br>Dashboard"]
-    end
-
-    subgraph API Layer
-        FA["FastAPI"]
-    end
-
-    subgraph Storage
-        PG[("PostgreSQL<br>(NeonDB)")]
-        FS[("FAISS<br>Index")]
-    end
-
-    subgraph AI Engine
-        EMD["MiniLM<br>Embeddings"]
-        RERANK["Cross-Encoder<br>Reranker"]
-        GROQ["Groq LLM<br>(Llama 3)"]
-    end
-
-    UI <--> FA
-    FA <--> PG
-    FA <--> FS
-    FA --> EMD
-    FA --> RERANK
-    FA --> GROQ
-```
+## Architecture & Workflow
 
 ### Retrieval Pipeline
-```mermaid
-flowchart TD
-    Q["User Query"] --> REWRITE["LLM Query Rewriter"]
-    REWRITE --> DUAL["Dual Retrieval (Original + Rewritten)"]
-    DUAL --> FAISS["FAISS Semantic Search (Top 40)"]
-    FAISS --> LEX["Lexical & Section Boost"]
-    LEX --> BM25["BM25 Keyword Scoring"]
-    BM25 --> MERGE["Hybrid Score Merge (65% Semantic / 35% Lexical)"]
-    MERGE --> RERANK["Cross-Encoder Reranking (Top 10)"]
-    RERANK --> GEN["LLM Grounded Generation"]
-    GEN --> RESP["Final Output + Citations + Confidence"]
-```
+
+**User → Query Rewriter → Hybrid Retrieval → Reranker → LLM → Response**
+
+1. **Query Rewriting:** An LLM pre-processes queries to resolve pronouns based on chat history.
+2. **Hybrid Retrieval:** Combines FAISS semantic search with BM25 keyword matching for superior recall.
+3. **Lexical Boosting:** Hard boosts for exact matches, Roman numerals, and section titles.
+4. **Two-Stage Reranking:** Applies slow, highly-accurate Cross-Encoders only to the top 10 candidates.
+5. **Grounded Generation:** Strict system prompts force the LLM to only answer using retrieved context.
 
 ---
 
-## ⚡ Performance Metrics
+## Core Features
+
+- **Section-Aware Chunking:** Detects headers and semantic blocks instead of arbitrary character splits.
+- **Dual Retrieval:** Searches using both the original and the LLM-rewritten query.
+- **Confidence Scoring:** Computed based on:
+    - Retrieval evidence strength
+    - Keyword agreement
+    - Hedging language penalty (penalizes "I think" or "might be")
+
+---
+
+## Performance Metrics
 
 - **Avg Retrieval Latency:** ~120ms
 - **Answer Generation:** ~1.2s (Powered by Groq)
@@ -89,21 +66,7 @@ flowchart TD
 
 ---
 
-## ✨ Core Features
-
-*   **Section-Aware Chunking:** Detects headers and semantic blocks instead of arbitrary character splits.
-*   **Hybrid Retrieval Pipeline:** Combines FAISS semantic search with BM25 keyword matching for superior recall.
-*   **Lexical Boosting:** Hard boosts for exact matches, Roman numerals, and section titles.
-*   **Two-Stage Reranking:** Applies slow, highly-accurate Cross-Encoders only to the top 10 candidates.
-*   **Query Rewriting:** An LLM pre-processes queries to resolve pronouns based on chat history.
-*   **Confidence Scoring:** Computed based on:
-    *   Retrieval evidence strength
-    *   Keyword agreement
-    *   Hedging language penalty (penalizes "I think" or "might be")
-
----
-
-## 💻 Tech Stack
+## Tech Stack
 
 ### AI Stack
 - **FAISS** (Vector Database)
@@ -122,7 +85,27 @@ flowchart TD
 
 ---
 
-## 🏃 Quick Start
+## Project Structure
+
+```text
+DocuMind/
+├── app/
+│   ├── config/        # Settings and environment variables
+│   ├── controllers/   # API route handlers
+│   ├── database/      # Database connections
+│   ├── models/        # SQLAlchemy schemas
+│   ├── services/      # RAG pipeline logic (Chunking, LLM, FAISS)
+│   ├── utils/         # Helpers (Validation, Logging)
+│   └── views/         # Pydantic response schemas
+├── data/              # FAISS binary storage
+├── frontend/          # Vanilla JS UI
+├── scripts/           # Diagnostics and maintenance
+└── uploads/           # Raw PDF storage
+```
+
+---
+
+## Quick Start
 
 Get the application running locally in under 2 minutes:
 
@@ -149,10 +132,10 @@ Navigate to `http://127.0.0.1:8000/ui` to access the dashboard.
 
 ---
 
-## 🔮 Future Work
+## Future Work
 
-- [ ] **Streaming responses** for faster perceived generation
-- [ ] **Multi-modal retrieval** (processing charts and images inside PDFs)
-- [ ] **Agentic query planning** for multi-step reasoning
-- [ ] **Vector DB scaling** (migrating FAISS to Pinecone/Qdrant)
-- [ ] **Semantic caching** to serve duplicate queries instantly
+- [ ] Streaming responses for faster perceived generation
+- [ ] Multi-modal retrieval (processing charts and images inside PDFs)
+- [ ] Agentic query planning for multi-step reasoning
+- [ ] Vector DB scaling (migrating FAISS to Pinecone/Qdrant)
+- [ ] Semantic caching to serve duplicate queries instantly
