@@ -50,6 +50,7 @@ _STOPWORDS = {
     "to", "for", "with", "by", "from", "up", "about", "into", "through",
     "and", "or", "but", "not", "so", "yet", "both", "either", "neither",
     "that", "this", "these", "those", "it", "its",
+    "list", "show", "tell", "give", "display", "all", "any", "find", "get", "inform", "information"
 }
 
 

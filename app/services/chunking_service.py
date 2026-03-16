@@ -352,68 +352,64 @@ def _detect_sections(text: str) -> List[Dict[str, Any]]:
     # Sort by position (both rules scan independently)
     sections.sort(key=lambda s: s["start"])
     return sections
+def _split_semantic_blocks(section_text: str) -> List[str]:
+    """
+    Split a section into semantic blocks.
+
+    A block is detected as:
+    Title-like line followed by bullet list OR paragraph cluster.
+    Works for resumes, reports, specs, research docs.
+    """
+
+    lines = section_text.split("\n")
+    blocks = []
+    current_block = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Detect likely block title
+        # A generalized title rule across all PDFs:
+        # 1. Short (under 100 chars)
+        # 2. Not a bullet point
+        # 3. Not ending in common sentence punctuation or continuation punctuation
+        # 4. Has some alphabetic content
+        # 5. Starts with an uppercase letter or a digit (avoids wrapped lowercase lines and paren-started continuations)
+        
+        starts_properly = bool(stripped) and (stripped[0].isupper() or stripped[0].isdigit())
+
+        is_title = (
+            stripped and
+            not any(stripped.startswith(b) for b in ("•", "-", "*", "1.", "2.", "3.", "o ")) and
+            len(stripped) < 100 and
+            any(c.isalpha() for c in stripped) and
+            not stripped.endswith(('.', '?', '!', ',', ';', ':')) and
+            starts_properly
+        )
+
+        # Start new block if title-like line appears and we already have content
+        if is_title and current_block:
+            blocks.append("\n".join(current_block).strip())
+            current_block = [line]
+        else:
+            current_block.append(line)
+
+    if current_block:
+        blocks.append("\n".join(current_block).strip())
+
+    # Filter out tiny fragments
+    return [b for b in blocks if len(b) > 20]
 
 
 def chunk_by_sections(pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Split a document into chunks using SECTION BOUNDARIES instead of
     a fixed character window.
-
-    WHY IS THIS BETTER THAN chunk_pages()?
-    ---------------------------------------
-    chunk_pages() doesn't know about document structure. It slices at
-    every 1200 characters, often cutting right through a project entry
-    or an education record — leaving one section split across two chunks.
-
-    chunk_by_sections() reads the MEANING first:
-      1. Detect all section headers (PROJECTS, EDUCATION, ...)
-      2. Slice the text at those natural breaks
-      3. One chunk = one complete section (Projects, Education, etc.)
-
-    If a section is very long (> CHUNK_SIZE chars), we fall back to the
-    existing sliding-window chunk_text() so we don't create monster chunks.
-
-    FALLBACK BEHAVIOUR:
-    -------------------
-    If no section headers are detected (e.g. a plain-text report with no
-    headings), this function falls back to chunk_pages() automatically.
-    Nothing breaks — you just get the old behaviour.
-
-    RETURN FORMAT:
-    --------------
-    Identical to chunk_pages() so document_service.py needs only a
-    1-line import change — all downstream code stays the same:
-    [
-        {
-            "page_number":  1,
-            "chunk_index":  0,
-            "section_name": "PROJECTS",   ← NEW — which section this came from
-            "text":         "PROJECTS\nAI Code Review Bot...",
-            "start_char":   0,
-            "end_char":     843,
-            "char_count":   843
-        },
-        ...
-    ]
-
-    Args:
-        pages_data: Same list of page dicts from pdf_service
-
-    Returns:
-        List of chunk dicts (one per section, or sub-chunks if section is large)
     """
 
-    # ------------------------------------------------------------------
     # STEP 1: Merge all pages into one big text block
-    # ------------------------------------------------------------------
-    # We join pages with TWO newlines so sections that span a page break
-    # are still connected. We also track which page each character falls on.
-    #
-    # Why join? A resume is 1 page, but a report might span 10 pages with
-    # "PROJECTS" starting on page 2.  If we chunk page-by-page, we'd never
-    # find the section header in the right context.
     full_text = ""
-    page_boundaries: List[Dict[str, Any]] = []   # [{start_char, end_char, page_number}, ...]
+    page_boundaries: List[Dict[str, Any]] = []
 
     for page in pages_data:
         if page.get("is_empty") or not page.get("text"):
@@ -430,55 +426,19 @@ def chunk_by_sections(pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not full_text.strip():
         return []
 
-    # ------------------------------------------------------------------
     # STEP 2: Detect section headers
-    # ------------------------------------------------------------------
     sections = _detect_sections(full_text)
 
-    # ------------------------------------------------------------------
     # FALLBACK: No headers found → use original sliding-window chunker
-    # ------------------------------------------------------------------
-    # This handles plain documents (raw reports, articles) with no
-    # structured headings.
     if not sections:
         print("  ⚠️  No section headers detected — falling back to sliding-window chunking.")
         return chunk_pages(pages_data)
 
     print(f"  🗂️  Detected {len(sections)} sections: {[s['name'] for s in sections]}")
 
-    # ------------------------------------------------------------------
     # STEP 3: Slice text into sections
-    # ------------------------------------------------------------------
-    # For each detected section, the section text runs from its own
-    # start position to the start of the NEXT section (or end of document).
-    #
-    # Example:
-    #   full_text = "SKILLS\njava python...\nPROJECTS\nAI Bot...EDUCATION\n..."
-    #   sections  = [{name:SKILLS, start:0}, {name:PROJECTS, start:120}, ...]
-    #
-    #   section_text for SKILLS   = full_text[0:120]   = "SKILLS\njava python..."
-    #   section_text for PROJECTS = full_text[120:480] = "PROJECTS\nAI Bot..."
-    # ------------------------------------------------------------------
-    # MIN_SECTION_CHARS: stub-header threshold
-    # ------------------------------------------------------------------
-    # Some documents use short colon-labeled lines as inline value labels:
-    #   "Project Title:"
-    #   "OrbitMind"           ← this is the VALUE, not a new section
-    #   "Team Size:"
-    #   "5"                   ← same problem
-    #
-    # The section detector fires on "Project Title:" and creates a split
-    # boundary, producing a tiny chunk of just 1-2 lines.  The actual value
-    # ends up in the NEXT section's chunk, disconnected from its label.
-    #
-    # Fix: if the section content (header + body) is shorter than this
-    # threshold it is treated as a stub — it is NOT emitted as its own chunk.
-    # The text will naturally be included in the previous section's span
-    # (since we only split at sections we DO emit).
-    MIN_SECTION_CHARS = 20
-
     all_chunks: List[Dict[str, Any]] = []
-    global_chunk_index = 0   # unique counter across all sections
+    global_chunk_index = 0
 
     for i, section in enumerate(sections):
         section_start = section["start"]
@@ -489,37 +449,48 @@ def chunk_by_sections(pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not section_text:
             continue
 
-    # find page number
+        # Find page number
         page_number = 1
         for boundary in page_boundaries:
             if boundary["start_char"] <= section_start < boundary["end_char"]:
                 page_number = boundary["page_number"]
                 break
 
-    # ⭐ BULLET GROUP SPLIT (GENERIC)
-        bullet_groups = re.split(r'\n(?=[A-Z][^\n]+\n•)', section_text)
+        # ⭐ SEMANTIC BLOCK SPLIT (PROJECTS, JOBS, REQUIREMENTS etc.)
+        blocks = _split_semantic_blocks(section_text)
 
-        if len(bullet_groups) > 1:
-            for group in bullet_groups:
-                group = group.strip()
-                if not group:
-                    continue
-
-                all_chunks.append({
-                    "page_number": page_number,
-                    "chunk_index": global_chunk_index,
-                    "section_name": section_name,
-                    "text": group,
-                    "start_char": section_start,
-                    "end_char": section_start + len(group),
-                    "char_count": len(group)
-                })
-                global_chunk_index += 1
-            print(f"    ✓ Section '{section_name}' split into {len(bullet_groups)} semantic bullet chunks")
+        if len(blocks) > 1:
+            for block in blocks:
+                # If a block is too big, split it further
+                if len(block) > settings.CHUNK_SIZE * 1.5:
+                    sub_chunks = chunk_text(block)
+                    for sub in sub_chunks:
+                        all_chunks.append({
+                            "page_number": page_number,
+                            "chunk_index": global_chunk_index,
+                            "section_name": section_name,
+                            "text": sub["text"],
+                            "start_char": section_start + sub["start_char"],
+                            "end_char": section_start + sub["end_char"],
+                            "char_count": sub["char_count"]
+                        })
+                        global_chunk_index += 1
+                else:
+                    all_chunks.append({
+                        "page_number": page_number,
+                        "chunk_index": global_chunk_index,
+                        "section_name": section_name,
+                        "text": block,
+                        "start_char": section_start,  # Approximation
+                        "end_char": section_start + len(block),
+                        "char_count": len(block)
+                    })
+                    global_chunk_index += 1
+            print(f"    ✓ Section '{section_name}' split into {len(blocks)} semantic blocks")
             continue
 
-    # ⭐ NORMAL SECTION CHUNK
-        if len(section_text) <= settings.CHUNK_SIZE:
+        # ⭐ NORMAL SECTION CHUNK (IF NO BLOCKS DETECTED)
+        if len(section_text) <= settings.CHUNK_SIZE * 1.2:
             all_chunks.append({
                 "page_number": page_number,
                 "chunk_index": global_chunk_index,
@@ -544,8 +515,11 @@ def chunk_by_sections(pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     "char_count": sub["char_count"]
                 })
                 global_chunk_index += 1
-
             print(f"    ✓ Section '{section_name}' → {len(sub_chunks)} sub-chunks")
+
+    print(f"  ✂️  Section-aware chunking: {len(all_chunks)} total chunks from {len(sections)} sections")
+    return all_chunks
+
     print(f"  ✂️  Section-aware chunking: {len(all_chunks)} total chunks from {len(sections)} sections")
     return all_chunks
 

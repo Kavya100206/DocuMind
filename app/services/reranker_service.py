@@ -89,9 +89,9 @@ def rerank(
     model = _get_model()
 
     # Pre-sort by best available score and cap at 10 candidates
-    # so the cross-encoder never evaluates more than 10 pairs per request.
+    # so the cross-encoder never evaluates more than 30 pairs per request.
     # This keeps inference fast regardless of how large the merged pool is.
-    MAX_CANDIDATES = 10
+    MAX_CANDIDATES = 30
     chunks = sorted(
         chunks,
         key=lambda c: c.get("hybrid_score") or c.get("similarity_score", 0),

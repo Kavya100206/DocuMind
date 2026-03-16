@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # Embedding Settings — LOCAL model
     # Model: sentence-transformers/all-MiniLM-L6-v2 — ~80MB, perfect for Render Free
-    LOCAL_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"#"sentence-transformers/all-MiniLM-L6-v2"
     EMBEDDING_DIMENSION: int = 384  # same as MiniLM — no schema change needed
 
     # Vector Store Settings
@@ -66,10 +66,10 @@ class Settings(BaseSettings):
     ALLOWED_EXTENSIONS: list = [".pdf"]
 
     # Retrieval Settings
-    TOP_K_RESULTS: int = 20         # FAISS candidates per query; with 3 docs × per-doc cap of 5 = fair diversity
-    SIMILARITY_THRESHOLD: float = 0.05 # Min cosine similarity; below = irrelevant
-    MAX_CHUNKS_PER_DOC: int = 15         # Max chunks any single doc contributes in global search
-    RERANKER_TOP_N: int = 12 #4             # Chunks kept after cross-encoder reranking → sent to LLM
+    TOP_K_RESULTS: int = 50       # FAISS candidates per query; was 40
+    SIMILARITY_THRESHOLD: float = 0.01 # Relaxed threshold to allow more candidates through; was 0.02
+    MAX_CHUNKS_PER_DOC: int = 30         # Max chunks any single doc contributes; was 20
+    RERANKER_TOP_N: int = 10             # Sharper context for LLM; was 20
 
     # Chunking Settings
     # 600 chars ≈ 100 words — each chunk covers exactly one resume section or one document section.

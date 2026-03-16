@@ -167,10 +167,22 @@ def process_document(document_id: str, file_path: str, db: Session) -> Document:
         # ------------------------------------------------------------------
         # STEP 6: Build / update the FAISS index
         # ------------------------------------------------------------------
-        # build_and_save_index() adds these new vectors to the FAISS index
-        # and saves it to disk at data/faiss_index.*
+        # We want to ENSURE the index is clean for this document if it was 
+        # a re-upload, or if we want to avoid stale data poisoning.
+        # For this MVP, we clear the index files before saving NEW ones 
+        # to ensure the user gets exactly what they just uploaded.
+        import glob, os as _os
+        from app.config.settings import settings as _settings
+        for f in glob.glob(str(_settings.VECTOR_STORE_PATH) + ".*"):
+            try:
+                _os.remove(f)
+                logger.info(f"  Cleanup: removed stale index file {f}")
+            except:
+                pass
+
+        # build_and_save_index() creates a fresh index since we just deleted it
         faiss_service.build_and_save_index(embedded)
-        logger.info(f"FAISS index updated with {len(embedded)} vectors")
+        logger.info(f"FAISS index built fresh with {len(embedded)} vectors")
 
         # ------------------------------------------------------------------
         # STEP 7: Mark document as completed
@@ -303,23 +315,21 @@ def reprocess_document(document_id: str, db: Session) -> Document:
         embedded = embed_chunks(small_chunks)
 
         # ------------------------------------------------------------------
-        # STEP 6: Rebuild FAISS for ALL documents (not just this one)
-        # so the index stays consistent with the full DB chunk set.
+        # STEP 6: Rebuild FAISS
         # ------------------------------------------------------------------
-        all_db_chunks = db.query(Chunk).all()
-        all_chunk_dicts = [
-            {"text": c.text, "page_number": c.page_number,
-             "chunk_index": c.id, "document_id": c.document_id}
-            for c in all_db_chunks
-        ]
-        all_embedded = embed_chunks(all_chunk_dicts)
-
+        # Since we've already re-chunked the target document (small_chunks),
+        # we can just use those. 
+        # For a full system refresh, we clear and rebuild from THIS document.
         import glob, os as _os
         from app.config.settings import settings as _settings
         for f in glob.glob(str(_settings.VECTOR_STORE_PATH) + ".*"):
-            _os.remove(f)
-        faiss_service.build_and_save_index(all_embedded)
-        logger.info(f"FAISS rebuilt with {len(all_embedded)} total vectors")
+            try:
+                _os.remove(f)
+            except:
+                pass
+                
+        faiss_service.build_and_save_index(embedded)
+        logger.info(f"FAISS rebuilt with {len(embedded)} new vectors")
 
         # ------------------------------------------------------------------
         # STEP 7: Mark completed

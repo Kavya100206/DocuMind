@@ -42,6 +42,7 @@ _STOPWORDS = {
     "into", "through", "during", "what", "which", "who", "how", "many",
     "much", "this", "that", "these", "those", "and", "or", "but", "not",
     "no", "nor", "so", "yet", "both", "either", "neither", "each", "few",
+    "list", "show", "tell", "give", "display", "all", "any", "find", "get", "inform", "information"
 }
 
 
@@ -147,29 +148,56 @@ def _apply_lexical_boost(
     boosted = []
     for chunk in chunks:
         chunk_text_lower = chunk.get("text", "").lower()
+        section_name_lower = str(chunk.get("section_name", "")).lower()
 
-        # Single-token matches
+        # Single-token matches in body text
         matched_tokens = sum(1 for tok in query_tokens if tok in chunk_text_lower)
 
-        # Bigram phrase matches (each matching phrase adds BIGRAM_BOOST)
+        # METADATA BOOST: Does the query mention the section name?
+        # e.g. Query "list projects" matches section_name="PROJECTS"
+        # This is a strong signal for all chunks in that section.
+        section_match = any(tok in section_name_lower for tok in query_tokens)
+        section_boost = 0.15 if section_match else 0.0
+
+        # HEADER BOOST/PENALTY
+        # is_pure_header: The chunk IS exactly the section name (e.g. "PROJECTS")
+        is_pure_header = chunk_text_lower.strip() == section_name_lower.strip()
+        
+        # Detect if query has "list" or "show" intent
+        query_lower = query.lower()
+        has_list_intent = any(word in query_lower for word in ["list", "show", "tell", "give", "display", "all", "projects", "enumerate"])
+
+        header_boost = 0.0
+        if is_pure_header:
+            # Deprioritize the header itself for "list" queries so we see items instead
+            if has_list_intent:
+                header_boost = -0.15 
+        elif len(chunk_text_lower) < 50:
+            # It's a short title but NOT the main section header (e.g. "AI Bot Project")
+            if any(tok == chunk_text_lower.strip() for tok in query_tokens):
+                header_boost = 0.12
+
+        # Bigram phrase matches
         matched_bigrams = sum(1 for bg in query_bigrams if bg in chunk_text_lower)
 
-        boost = min(
-            matched_tokens * boost_per_token + matched_bigrams * BIGRAM_BOOST,
-            max_boost
-        )
-        boosted_score = round(chunk["similarity_score"] + boost, 4)
+        # ROMAN/NUMERIC BOOST: bonus for matching identifiers like "I", "II", "v1"
+        roman_matches = sum(1 for tok in query_tokens if tok in roman_single and tok in chunk_text_lower)
+        roman_boost = 0.05 if roman_matches > 0 else 0.0
 
-        # Store boosted score (keep original for transparency in logs)
+        total_boost = min(
+            matched_tokens * boost_per_token + matched_bigrams * BIGRAM_BOOST + section_boost + header_boost + roman_boost,
+            max_boost + 0.25 
+        )
+        boosted_score = round(chunk["similarity_score"] + total_boost, 4)
+
         updated = dict(chunk)
         updated["similarity_score"] = boosted_score
-        if boost > 0:
-            print(
-                f"    ↑ Boost +{boost:.2f} "
-                f"(tokens:{matched_tokens}/{len(query_tokens)}, "
-                f"bigrams:{matched_bigrams}/{len(query_bigrams)}): "
-                f"{chunk.get('text','')[:60]}..."
-            )
+        if total_boost != 0:
+            msg = f"    ↑ Boost {total_boost:+.2f} (item:{'YES' if not is_pure_header else 'NO'}, tokens:{matched_tokens}, bg:{matched_bigrams}"
+            if section_match: msg += ", section:YES"
+            if header_boost != 0: msg += f", header_mod:{header_boost:+.2f}"
+            msg += f"): {chunk.get('text','')[:50]}..."
+            print(msg)
         boosted.append(updated)
 
     # Re-sort by boosted score — highest first
@@ -230,7 +258,7 @@ def search_chunks(
     # ------------------------------------------------------------------
     # faiss_service.search() returns the top-k results already sorted
     # Each result has: text, page_number, document_id, similarity_score
-    raw_results = faiss_service.search(query_text=query, k=k)
+    raw_results = faiss_service.search(query_text=query, k=settings.TOP_K_RESULTS)
 
     if not raw_results:
         return []
