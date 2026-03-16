@@ -58,6 +58,9 @@ from app.config.settings import settings
 # Global flag to prevent querying while background index build happens
 IS_BUILDING = False
 
+_cached_index = None
+_cached_metadata = None
+
 def build_and_save_index(chunks: List[Dict[str, Any]]) -> None:
     """
     Build a FAISS index from embedded chunks and save it to disk.
@@ -79,6 +82,7 @@ def build_and_save_index(chunks: List[Dict[str, Any]]) -> None:
     Args:
         chunks: List of chunk dicts, each must have an "embedding" key
     """
+    global _cached_index, _cached_metadata
 
     # Filter out any chunks that somehow didn't get embedded
     embedded_chunks = [c for c in chunks if "embedding" in c]
@@ -150,11 +154,12 @@ def build_and_save_index(chunks: List[Dict[str, Any]]) -> None:
     # (no point saving that again — it's already in the FAISS index)
     for chunk in embedded_chunks:
         metadata.append({
-            "document_id": chunk.get("document_id"),
-            "page_number":  chunk.get("page_number"),
-            "chunk_index":  chunk.get("chunk_index"),
-            "text":         chunk.get("text"),
-            "char_count":   chunk.get("char_count"),
+            "document_id":  chunk.get("document_id"),
+            "page_number":   chunk.get("page_number"),
+            "chunk_index":   chunk.get("chunk_index"),
+            "text":          chunk.get("text"),
+            "char_count":    chunk.get("char_count"),
+            "section_name":  chunk.get("section_name"),
         })
 
     # ------------------------------------------------------------------
@@ -169,10 +174,15 @@ def build_and_save_index(chunks: List[Dict[str, Any]]) -> None:
         pickle.dump(metadata, f)
     print(f"  💾 Metadata saved to: {meta_path}")
 
+    # Force a cache reset so the next query re-reads the fresh index from disk
+    _cached_index = None
+    _cached_metadata = None
+
 
 def load_index():
     """
-    Load the FAISS index and metadata from disk.
+    Load the FAISS index and metadata from disk, keeping it cached globally
+    so it doesn't cause Out-Of-Memory (OOM) errors by reloading repeatedly.
 
     Returns:
         (index, metadata) tuple, or (None, None) if no index exists yet.
@@ -181,6 +191,13 @@ def load_index():
     - index: a faiss.Index object you can call .search() on
     - metadata: a list of dicts, one per chunk in the index
     """
+    global _cached_index, _cached_metadata
+
+    if _cached_index is not None and _cached_metadata is not None:
+        return _cached_index, _cached_metadata
+
+    # Prevent FAISS parallelism from exploding memory
+    faiss.omp_set_num_threads(1)
 
     index_path = settings.VECTOR_STORE_PATH + ".index"
     meta_path = settings.VECTOR_STORE_PATH + ".meta"
@@ -189,13 +206,13 @@ def load_index():
         print("  ⚠️  No FAISS index found. Upload some documents first.")
         return None, None
 
-    index = faiss.read_index(index_path)
+    _cached_index = faiss.read_index(index_path)
 
     with open(meta_path, "rb") as f:
-        metadata = pickle.load(f)
+        _cached_metadata = pickle.load(f)
 
-    print(f"  📂 Loaded FAISS index with {index.ntotal} vectors.")
-    return index, metadata
+    print(f"  📂 Loaded FAISS index into cache with {_cached_index.ntotal} vectors.")
+    return _cached_index, _cached_metadata
 
 
 def search(query_text: str, k: int = 5) -> List[Dict[str, Any]]:
@@ -269,6 +286,7 @@ def search(query_text: str, k: int = 5) -> List[Dict[str, Any]]:
             "document_id":      chunk_meta["document_id"],
             "chunk_index":      chunk_meta["chunk_index"],
             "similarity_score": float(distance),  # higher = more relevant
+            "section_name":     chunk_meta.get("section_name"),
         })
     return results
 

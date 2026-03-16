@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api", tags=["Question Answering"])
 # Intentionally in-process memory (not Redis/DB) — cleared on server restart.
 _sessions: dict = {}
 
-MAX_HISTORY_PER_SESSION = 20  # keep last 20 messages (10 exchanges) per session
+MAX_HISTORY_PER_SESSION = 10  # keep last 10 messages (5 exchanges) per session
 
 
 class AskRequest(BaseModel):
@@ -111,13 +111,21 @@ def ask_question(
             print(f"  Loaded {len(history)} history messages for session '{session_id[:8]}...'")
 
     # Pronoun ambiguity guard
-    # If the question has unresolved pronouns (she/he/they) AND no history exists,
+    # If the question relies purely on a dangling pronoun ("Where did she work?") AND there is not enough history,
     # the LLM will assume context from the most relevant document — which is wrong.
     # Return a clarification request immediately instead of hallucinating a subject.
+    # We restrict this by allowing the question IF it contains a Proper Noun (capitalized word)
+    # anywhere after the first word, assuming it establishes its own subject (e.g. "Who is Kavya and what are her programs?").
+    
     AMBIGUOUS_PRONOUNS = {"she", "he", "they", "her", "his", "their"}
     question_tokens = set(question.lower().split())
-    if question_tokens & AMBIGUOUS_PRONOUNS and not history:
-        print("  Pronoun guard triggered: unresolved pronoun with empty history")
+    
+    # Check if there's a capitalized word (ignoring the first word of the sentence)
+    words = question.split()
+    has_proper_noun = any(w[0].isupper() for w in words[1:]) if len(words) > 1 else False
+    
+    if question_tokens & AMBIGUOUS_PRONOUNS and len(history) < 2 and not has_proper_noun:
+        print("  Pronoun guard triggered: unresolved pronoun with empty history and no proper noun")
         return QAResponse(
             question=question,
             answer=(
@@ -131,95 +139,107 @@ def ask_question(
         )
 
 
-    # STEP 2: Query Rewriting
-    # Semantically broadens the query (resolves pronouns, preserves intent).
-    # The REWRITTEN query goes to FAISS; the ORIGINAL question goes to the LLM.
-    rewritten_query = llm_service.rewrite_query(question=question, history=history)
+    try:
+        # STEP 2: Query Rewriting
+        # Semantically broadens the query (resolves pronouns, preserves intent).
+        # The REWRITTEN query goes to FAISS; the ORIGINAL question goes to the LLM.
+        rewritten_query = llm_service.rewrite_query(question=question, history=history)
 
-    # STEP 3: Dual Query Retrieval (fast path)
-    # Use search_chunks_fast() which skips the expensive cross-encoder.
-    # We gather candidates from BOTH query formulations, merge unique chunks,
-    # then run the cross-encoder ONCE on the merged pool.
-    # Result: same quality as before but reranker inference happens only ONCE.
-    from app.services import reranker_service
-    chunks_rewritten = retrieval_service.search_chunks_fast(
-        query=rewritten_query,
-        db=db,
-        k=request.k,
-        document_id=request.document_id
-    )
-
-    chunks_original = []
-    if rewritten_query != question:
-        chunks_original = retrieval_service.search_chunks_fast(
-            query=question,
+        # STEP 3: Dual Query Retrieval (fast path)
+        # Use search_chunks_fast() which skips the expensive cross-encoder.
+        # We gather candidates from BOTH query formulations, merge unique chunks,
+        # then run the cross-encoder ONCE on the merged pool.
+        # Result: same quality as before but reranker inference happens only ONCE.
+        from app.services import reranker_service
+        chunks_rewritten = retrieval_service.search_chunks_fast(
+            query=rewritten_query,
             db=db,
             k=request.k,
             document_id=request.document_id
         )
 
-    print(f"  [DEBUG] chunks_rewritten: {len(chunks_rewritten)} chunks from '{rewritten_query[:40]}'")
-    print(f"  [DEBUG] chunks_original:  {len(chunks_original)} chunks from '{question[:40]}'")
+        chunks_original = []
+        if rewritten_query != question:
+            chunks_original = retrieval_service.search_chunks_fast(
+                query=question,
+                db=db,
+                k=request.k,
+                document_id=request.document_id
+            )
 
-    # Merge unique chunks (rewritten results have priority)
-    seen_keys: set = set()
-    merged = []
-    for c in chunks_rewritten + chunks_original:
-        key = (c.get("document_id"), c.get("chunk_index"))
-        if key not in seen_keys:
-            seen_keys.add(key)
-            merged.append(c)
+        print(f"  [DEBUG] chunks_rewritten: {len(chunks_rewritten)} chunks from '{rewritten_query[:40]}'")
+        print(f"  [DEBUG] chunks_original:  {len(chunks_original)} chunks from '{question[:40]}'")
 
-    print(f"  [DEBUG] merged: {len(merged)} unique candidates before reranker")
-    if merged:
-        top_score = max(c.get("hybrid_score") or c.get("similarity_score", 0) for c in merged)
-        print(f"  [DEBUG] best hybrid/sim score in merged pool: {top_score:.4f}")
+        # Merge unique chunks (rewritten results have priority)
+        seen_keys: set = set()
+        merged = []
+        for c in chunks_rewritten + chunks_original:
+            key = (c.get("document_id"), c.get("chunk_index"))
+            if key not in seen_keys:
+                seen_keys.add(key)
+                merged.append(c)
 
-    # Apply cross-encoder ONCE on the merged candidate pool
-    chunks = reranker_service.rerank(
-        query=rewritten_query,
-        chunks=merged,
-        top_n=settings.RERANKER_TOP_N
-    )
-    print(f"  [DEBUG] after rerank: {len(chunks)} chunks selected")
-    if chunks:
-        print(f"  [DEBUG] reranker scores: {[c.get('reranker_score') for c in chunks]}")
+        print(f"  [DEBUG] merged: {len(merged)} unique candidates before reranker")
+        if merged:
+            top_score = max(c.get("hybrid_score") or c.get("similarity_score", 0) for c in merged)
+            print(f"  [DEBUG] best hybrid/sim score in merged pool: {top_score:.4f}")
 
+        # Apply cross-encoder ONCE on the merged candidate pool
+        chunks = reranker_service.rerank(
+            query=rewritten_query,
+            chunks=merged,
+            top_n=settings.RERANKER_TOP_N
+        )
+        print(f"  [DEBUG] after rerank: {len(chunks)} chunks selected")
+        if chunks:
+            print(f"  [DEBUG] reranker scores: {[c.get('reranker_score') for c in chunks]}")
 
+        # STEP 4: Generate answer with Groq
+        result = llm_service.generate_answer(
+            question=question,       # original question as the final prompt
+            context_chunks=chunks,
+            history=history          # conversation context
+        )
 
-    # STEP 4: Generate answer with Groq
-    result = llm_service.generate_answer(
-        question=question,       # original question as the final prompt
-        context_chunks=chunks,
-        history=history          # conversation context
-    )
+        # STEP 5: Save to session history
+        if session_id:
+            if session_id not in _sessions:
+                _sessions[session_id] = []
 
-    # STEP 5: Save to session history
-    if session_id:
-        if session_id not in _sessions:
-            _sessions[session_id] = []
+            _sessions[session_id].append({"role": "user",      "content": question})
+            _sessions[session_id].append({"role": "assistant", "content": result["answer"]})
 
-        _sessions[session_id].append({"role": "user",      "content": question})
-        _sessions[session_id].append({"role": "assistant", "content": result["answer"]})
+            # Trim old messages to stay within memory limit
+            if len(_sessions[session_id]) > MAX_HISTORY_PER_SESSION:
+                _sessions[session_id] = _sessions[session_id][-MAX_HISTORY_PER_SESSION:]
 
-        # Trim old messages to stay within memory limit
-        if len(_sessions[session_id]) > MAX_HISTORY_PER_SESSION:
-            _sessions[session_id] = _sessions[session_id][-MAX_HISTORY_PER_SESSION:]
+            print(f"  Session '{session_id[:8]}...' now has {len(_sessions[session_id])} messages")
 
-        print(f"  Session '{session_id[:8]}...' now has {len(_sessions[session_id])} messages")
+        # STEP 6: Shape and return the response
+        citations = [Citation(**c) for c in result["citations"]]
 
-    # STEP 6: Shape and return the response
-    citations = [Citation(**c) for c in result["citations"]]
+        return QAResponse(
+            question=question,
+            answer=result["answer"],
+            citations=citations,
+            confidence=result["confidence"],
+            has_answer=result["has_answer"],
+            model_used=settings.GROQ_MODEL,
+            rewritten_query=rewritten_query if rewritten_query != question else None,
+        )
 
-    return QAResponse(
-        question=question,
-        answer=result["answer"],
-        citations=citations,
-        confidence=result["confidence"],
-        has_answer=result["has_answer"],
-        model_used=settings.GROQ_MODEL,
-        rewritten_query=rewritten_query if rewritten_query != question else None,
-    )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return QAResponse(
+            question=question,
+            answer="I'm sorry, an internal processing error occurred while analyzing your documents. Please try asking again.",
+            citations=[],
+            confidence=0.0,
+            has_answer=False,
+            model_used=settings.GROQ_MODEL,
+            rewritten_query=None
+        )
 
 
 @router.delete(

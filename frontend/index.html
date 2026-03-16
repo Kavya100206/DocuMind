@@ -922,16 +922,26 @@
     // ── Delete ────────────────────────────────────────────────────────────────
     async function deleteDoc(id, name) {
       if (!confirm(`Delete "${name}"? This will remove all chunks and update the search index.`)) return;
+
+      const statusEl = document.getElementById('upload-status');
+      statusEl.style.display = 'block';
+      statusEl.innerHTML = `⏳ Deleting <strong>${name}</strong>…`;
+
       try {
         const r = await fetch(`${API}/api/documents/${id}`, { method: 'DELETE' });
         if (r.ok) {
-          showToast(`🗑️ "${name}" deleted`, 'success');
+          showToast(`✅ "${name}" deleted successfully`, 'success');
+          statusEl.style.display = 'none';
           await loadDocuments();
         } else {
           const d = await r.json();
           showToast(d.detail || 'Delete failed', 'error');
+          statusEl.style.display = 'none';
         }
-      } catch (e) { showToast('Delete failed', 'error'); }
+      } catch (e) {
+        showToast('Delete failed', 'error');
+        statusEl.style.display = 'none';
+      }
     }
 
     // ── Q&A ───────────────────────────────────────────────────────────────────

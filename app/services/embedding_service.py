@@ -21,20 +21,11 @@ from app.config.settings import settings
 # -----------------------------------------------------------------------
 # LOADING THE MODEL
 # -----------------------------------------------------------------------
-# SentenceTransformer() loads the model into memory.
+# SentenceTransformer() loads the model into memory exactly once at startup.
 # Using all-MiniLM-L6-v2: ~80MB, extremely memory efficient for 512MB RAM limits.
-print("🤖 Loading local embedding model (all-MiniLM-L6-v2)...")
-# model = SentenceTransformer(settings.LOCAL_EMBEDDING_MODEL)
-_model = None
-
-def get_model():
-    global _model
-    if _model is None:
-        print("🤖 Loading embedding model...")
-        _model = SentenceTransformer(settings.LOCAL_EMBEDDING_MODEL)
-        print("✅ Model loaded")
-    return _model
-print(f"✅ Embedding model loaded: {settings.LOCAL_EMBEDDING_MODEL}")
+print(f"🤖 Loading local embedding model ({settings.LOCAL_EMBEDDING_MODEL})...")
+model = SentenceTransformer(settings.LOCAL_EMBEDDING_MODEL)
+print("✅ Model loaded")
 
 # Batch size for processing multiple chunks at once
 BATCH_SIZE = 16  # Reduced batch size slightly for memory safety on Render Free
@@ -76,7 +67,7 @@ def get_embedding(text: str) -> List[float]:
     if settings.LOCAL_EMBEDDING_MODEL.startswith("BAAI/bge"):
         clean_text = BGE_QUERY_PREFIX + clean_text
 
-    embedding = get_model().encode(clean_text, normalize_embeddings=True)
+    embedding = model.encode(clean_text, normalize_embeddings=True)
     return embedding.tolist()
 
 
@@ -98,7 +89,7 @@ def get_embeddings_batch(texts: List[str]) -> List[List[float]]:
 
     # encode() accepts a list directly — processes all at once
     # show_progress_bar=False → don't print a progress bar for each batch
-    embeddings = get_model().encode(
+    embeddings = model.encode(
         clean_texts,
         normalize_embeddings=True,
         show_progress_bar=False
@@ -136,7 +127,7 @@ def embed_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     texts = [chunk["text"] for chunk in chunks]
 
     # Embed them all in one call — sentence-transformers handles batching internally
-    embeddings = get_model().encode(
+    embeddings = model.encode(
         texts,
         normalize_embeddings=True,
         show_progress_bar=True,   # shows a nice progress bar for large batches

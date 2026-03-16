@@ -78,8 +78,13 @@ def rebuild_faiss_index():
 
         faiss_service.build_and_save_index(all_embedded)
 
+        # 🚨 CRITICAL FAISS CACHE CLEAR 🚨
+        # Force the main FastAPI search thread to reload the new index from disk
+        faiss_service._cached_index = None
+        faiss_service._cached_metadata = None
+
         logger.info(
-            f"SUCCESS: FAISS rebuilt with {len(all_embedded)} vectors"
+            f"SUCCESS: FAISS rebuilt with {len(all_embedded)} vectors and global cache flushed."
         )
 
     except Exception as e:

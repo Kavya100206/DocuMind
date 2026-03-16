@@ -68,29 +68,27 @@ client = Groq(api_key=settings.GROQ_API_KEY)
 
 # The system prompt is the most important part of grounded RAG.
 # It defines the LLM's "rules of engagement" — what it can and cannot do.
-SYSTEM_PROMPT = """You are DocuMind, a precise document assistant.
+SYSTEM_PROMPT = """You are DocuMind, a precise document assistant capable of synthesizing information across multiple documents.
 
-Your ONLY job is to extract and report information that is EXPLICITLY stated in the provided context.
+Your ONLY job is to extract and report information that is EXPLICITLY stated in the provided context. When asked a broad question, actively combine and synthesize information across all provided document sources to provide a complete answer.
 
 RULES:
-1. Answer using information explicitly present in the context.You may associate items with clearly labeled section headers if they appear directly under them.
+1. Answer using information explicitly present in the context. You MUST actively combine insights from ALL relevant documents if multiple sources contain pieces of the answer.
 2. If the answer is not explicitly stated, say: "I don't have enough information in the provided documents to answer this question."
-3. NEVER perform calculations — if the document states a total, quote it directly; do not add up individual values
-4. NEVER combine values from multiple sources to compute a new answer
-5. If a direct answer exists in the context, quote it verbatim — do not rephrase or derive
-6. Include specific names, numbers, and page references from the context
-7. If multiple conflicting values appear, list all of them and note the conflict
-8. Do NOT use your training knowledge — answer only from the provided context
-9. Keep answers concise — one direct answer, then supporting details if needed
-10. If you are unsure whether a value is explicitly stated or inferred, say so clearly
-11. If a question asks for a total, summary, or overall value and it is NOT explicitly stated in the context, say you don't have that information — do NOT calculate or derive it from individual values"""
+3. NEVER perform calculations — if the document states a total, quote it directly; do not add up individual values.
+4. If a direct answer exists in the context, quote it verbatim — do not rephrase or derive.
+5. Include specific names, numbers, and page references from the context.
+6. If multiple conflicting values appear across different documents, list all of them and note the conflict.
+7. Do NOT use your training knowledge — answer only from the provided context.
+8. Keep answers concise — one direct answer, then supporting details if needed.
+9. If you are unsure whether a value is explicitly stated or inferred, say so clearly."""
 
 # If the best chunk scores below this, the context is too weak to be useful.
 # We return "I don't know" immediately without wasting a Groq API call.
 # IMPORTANT: must match SIMILARITY_THRESHOLD in settings.py (both = 0.10)
 # If this is higher than SIMILARITY_THRESHOLD, chunks that pass FAISS still
 # get silently rejected here — causing false "I don't know" responses.
-LOW_CONFIDENCE_THRESHOLD = 0.10
+LOW_CONFIDENCE_THRESHOLD = 0.05
 
 
 def _deduplicate_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -176,6 +174,7 @@ def rewrite_query(question: str, history: list = []) -> str:
         "- Resolve pronouns (she/he/they/it) using the conversation history ONLY\n"
         "- If a pronoun cannot be resolved from history, leave the question UNCHANGED\n"
         "- Do NOT guess or assume the subject if it is not in the chat history\n"
+        "- If the question requires multiple pieces of information (multi-hop), ensure ALL key concepts are included in your rewritten query.\n"
         "- Preserve the original intent and scope of the question\n"
         "- Do NOT list specific answers or assume facts\n"
         "- Keep it concise and natural — like a good search query\n"
@@ -269,52 +268,44 @@ IMPORTANT REMINDER: Answer using ONLY what is explicitly stated above. Do NOT ca
 Answer:"""
 
 
-def calculate_confidence(chunks: List[Dict[str, Any]]) -> float:
+def calculate_confidence(chunks: List[Dict[str, Any]], answer_text: str = "") -> float:
     """
-    Calculate a confidence score based on retrieval similarity scores.
+    Calculate a comprehensive confidence score based on retrieval signals and answer quality.
 
     HOW IT WORKS:
     -------------
-    We take the average similarity score of retrieved chunks.
-    Higher average = Groq had more relevant context to work with
-                   = more confident in the answer.
-
-    Score interpretation:
-      0.00 – 0.20 = Low confidence (chunks barely matched the query)
-      0.20 – 0.40 = Medium confidence (some relevant context found)
-      0.40 – 0.60 = Good confidence (strong semantic match)
-      0.60+       = High confidence (very relevant context)
-
-    NOTE: We multiply by 2 to scale up (our model scores max ~0.5 for good matches,
-    so multiplying by 2 brings 0.4 → 0.8, which is more intuitive).
-
-    Args:
-        chunks: List of retrieved chunk dicts with "similarity_score" key
-
-    Returns:
-        Confidence score between 0.0 and 1.0
+    Instead of heavily punishing the average if one chunk scored poorly,
+    we base the core confidence on the *best* piece of evidence found.
+    Then we apply slight bonuses/penalties based on how many chunks supported it
+    and whether the LLM wrote a detailed answer.
     """
 
     if not chunks:
         return 0.0
 
-    # Sort by score descending and take only the TOP 3
-    # WHY: All retrieved chunks (including low-scoring ones near threshold 0.10)
-    # drag the average down, even if the best chunks strongly matched the query.
-    # Top-3 reflects the quality of evidence the LLM actually relied on most.
-    top_scores = sorted(
-        [c.get("similarity_score", 0.0) for c in chunks],
-        reverse=True
-    )[:3]
+    # 1. Base Score: The most relevant piece of evidence
+    scores = [c.get("similarity_score", 0.0) for c in chunks]
+    best_score = max(scores)
+    
+    # Scale up (all-MiniLM-L6 raw cosine scores are naturally low: ~0.15–0.30)
+    # 0.25 * 3.2 = 0.80. Cap Base at 0.85
+    base_confidence = min(best_score * 3.2, 0.85)
 
-    avg_score = sum(top_scores) / len(top_scores)
+    # 2. Volume Bonus: Are there multiple supporting chunks?
+    # +0.02 for each additional chunk above 0.15 similarity, max +0.10
+    strong_chunks = sum(1 for s in scores if s > 0.15)
+    volume_bonus = min((strong_chunks - 1) * 0.02, 0.10) if strong_chunks > 1 else 0.0
 
-    # Scale up by 3 (all-MiniLM-L6-v2 raw cosine scores are naturally low: ~0.15–0.30)
-    # A "good match" score of ~0.21 × 3 = 0.63 — much more intuitive than 0.42
-    # Cap at 0.9 — never return 1.0 (nothing is 100% certain in RAG)
-    scaled = min(avg_score * 3, 0.9)
+    # 3. Answer Length Penalty: Weak/short answers shouldn't get 90% confidence
+    length_penalty = 0.0
+    word_count = len(answer_text.split()) if answer_text else 0
+    if 0 < word_count < 15:
+        length_penalty = -0.15  # Terse, probably missing details
+    elif word_count == 0:
+        length_penalty = -0.50
 
-    return round(scaled, 2)
+    total = base_confidence + volume_bonus + length_penalty
+    return round(max(min(total, 0.95), 0.0), 2)
 
 
 def _penalize_for_hedging(confidence: float, answer_text: str) -> float:
@@ -415,7 +406,7 @@ def generate_answer(
         reverse=True
     )
     
-    MAX_CONTEXT_TOKENS = 1400  # reduced from 2000 → faster LLM generation
+    MAX_CONTEXT_TOKENS = 2500  # increased to aggressively support multi-document cross-reasoning
     packed_chunks = []
     current_tokens = 0
     
@@ -520,7 +511,7 @@ def generate_answer(
     # ------------------------------------------------------------------
     # STEP 6: Calculate confidence (+ penalize for hedging)
     # ------------------------------------------------------------------
-    confidence = calculate_confidence(context_chunks)
+    confidence = calculate_confidence(context_chunks, answer_text)
     # If the LLM used hedging phrases ("not explicitly mentioned", "implied"...),
     # it means it went beyond the context → hallucination risk → halve confidence
     confidence = _penalize_for_hedging(confidence, answer_text)

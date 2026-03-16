@@ -397,8 +397,27 @@ def _split_semantic_blocks(section_text: str) -> List[str]:
     if current_block:
         blocks.append("\n".join(current_block).strip())
 
-    # Filter out tiny fragments
-    return [b for b in blocks if len(b) > 20]
+    filtered_blocks = [b for b in blocks if len(b) > 20]
+
+    merged_blocks = []
+    current_merged = ""
+    for b in filtered_blocks:
+        if current_merged:
+            current_merged += "\n\n" + b
+        else:
+            current_merged = b
+            
+        if len(current_merged) >= 200:
+            merged_blocks.append(current_merged)
+            current_merged = ""
+            
+    if current_merged:
+        if merged_blocks:
+            merged_blocks[-1] += "\n\n" + current_merged
+        else:
+            merged_blocks.append(current_merged)
+            
+    return merged_blocks
 
 
 def chunk_by_sections(pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -517,9 +536,29 @@ def chunk_by_sections(pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 global_chunk_index += 1
             print(f"    ✓ Section '{section_name}' → {len(sub_chunks)} sub-chunks")
 
-    print(f"  ✂️  Section-aware chunking: {len(all_chunks)} total chunks from {len(sections)} sections")
-    return all_chunks
+    # ------------------------------------------------------------------
+    # FINAL STEP: Prepend section name to each chunk's text
+    # ------------------------------------------------------------------
+    # WHY: Without this, individual items within a section (e.g. a single
+    # project entry under "PROJECTS") don't contain the section name at all.
+    # The embedding model can't know "this is a project" from just the
+    # description text alone.
+    #
+    # Prepending the section name:
+    #   1. Improves semantic embedding match for section-level queries
+    #      ("list projects" now matches chunks containing "[PROJECTS]")
+    #   2. Helps BM25 keyword scoring find the right section's chunks
+    #   3. Gives the LLM explicit section context for better answers
+    #
+    # GENERIC: Works for any document — resumes ("PROJECTS"), specs
+    # ("REQUIREMENTS"), papers ("METHODOLOGY"), etc. No word lists.
+    for chunk in all_chunks:
+        section = chunk.get("section_name", "")
+        if section and not chunk["text"].upper().startswith(section.upper()):
+            chunk["text"] = f"[{section}]\n{chunk['text']}"
+            chunk["char_count"] = len(chunk["text"])
 
     print(f"  ✂️  Section-aware chunking: {len(all_chunks)} total chunks from {len(sections)} sections")
     return all_chunks
+
 

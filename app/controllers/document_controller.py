@@ -358,6 +358,17 @@ def _rebuild_faiss_index(db: Session) -> None:
         logger.info("No chunks remaining — FAISS index files removed")
         return
 
+    # Delete the existing FAISS index files so build_and_save_index()
+    # creates a FRESH index (instead of appending to one that still
+    # contains the deleted document's vectors).
+    import glob
+    from app.config.settings import settings as _settings
+    for f in glob.glob(str(_settings.VECTOR_STORE_PATH) + ".*"):
+        try:
+            os.remove(f)
+        except:
+            pass
+
     # Build chunk dicts in the same format embed_chunks() expects
     chunk_dicts = [
         {

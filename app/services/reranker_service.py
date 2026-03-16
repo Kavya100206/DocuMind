@@ -34,6 +34,7 @@ MODEL: BAAI/bge-reranker-base
 
 from typing import List, Dict, Any
 import math
+import gc
 from app.config.settings import settings
 from app.utils.logger import get_logger
 
@@ -89,9 +90,9 @@ def rerank(
     model = _get_model()
 
     # Pre-sort by best available score and cap at 10 candidates
-    # so the cross-encoder never evaluates more than 30 pairs per request.
-    # This keeps inference fast regardless of how large the merged pool is.
-    MAX_CANDIDATES = 30
+    # so the cross-encoder never evaluates more than 10 pairs per request.
+    # This heavily restricts peak RAM usage of the 120MB model.
+    MAX_CANDIDATES = 10
     chunks = sorted(
         chunks,
         key=lambda c: c.get("hybrid_score") or c.get("similarity_score", 0),
@@ -124,5 +125,10 @@ def rerank(
             f"{ch.get('document_name','?')[:25]} | p{ch.get('page_number')} | "
             f"{ch['text'][:60].replace(chr(10), ' ')}..."
         )
+
+    # Clean up heavy memory allocations
+    del pairs
+    del scores
+    gc.collect()
 
     return top_chunks

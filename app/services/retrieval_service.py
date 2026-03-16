@@ -49,8 +49,8 @@ _STOPWORDS = {
 def _apply_lexical_boost(
     query: str,
     chunks: List[Dict[str, Any]],
-    boost_per_token: float = 0.07,
-    max_boost: float = 0.20,
+    boost_per_token: float = 0.06,  # Increased from 0.04 to give resumes higher lexical weight
+    max_boost: float = 0.15,        # Increased from 0.15
 ) -> List[Dict[str, Any]]:
     """
     Re-rank retrieved chunks by adding an exact-match score boost.
@@ -141,7 +141,7 @@ def _apply_lexical_boost(
 
     # Bigram boost is stronger than per-token boost because an exact 2-word
     # phrase match is much more precise (e.g. "team members" vs "team size").
-    BIGRAM_BOOST = 0.08
+    BIGRAM_BOOST = 0.10
 
     print(f"  🔤 Lexical boost tokens: {sorted(query_tokens)} | bigrams: {sorted(query_bigrams)}")
 
@@ -257,8 +257,9 @@ def search_chunks(
     # STEP 1: Search FAISS
     # ------------------------------------------------------------------
     # faiss_service.search() returns the top-k results already sorted
-    # Each result has: text, page_number, document_id, similarity_score
-    raw_results = faiss_service.search(query_text=query, k=settings.TOP_K_RESULTS)
+    # We fetch a wide net of 25 candidates, then let BM25 + Reranker prune it down 
+    # to the TOP_K_RESULTS (10) for the LLM.
+    raw_results = faiss_service.search(query_text=query, k=40)
 
     if not raw_results:
         return []
@@ -295,9 +296,9 @@ def search_chunks(
     if document_id:
         # Re-fetch with higher k so we see more of the document's chunks
         if k <= 10:
-            raw_results = faiss_service.search(query_text=query, k=20)
+            raw_results = faiss_service.search(query_text=query, k=25)
 
-        single_doc_threshold = 0.10   # relaxed threshold for single-doc search
+        single_doc_threshold = SIMILARITY_THRESHOLD
 
         # Try to filter to just this document's chunks
         filtered_for_doc = [
@@ -310,20 +311,8 @@ def search_chunks(
             # Happy path: FAISS meta IDs match the requested document_id
             relevant = filtered_for_doc
         else:
-            # Graceful fallback: the IDs don't match (can happen if the FAISS
-            # index was rebuilt in a separate process and uvicorn is still
-            # using the old in-memory index, or if the document was re-uploaded
-            # and got a new UUID).
-            # Rather than returning nothing, fall back to a global search so
-            # the user still gets an answer.
-            print(
-                f"  ⚠️  doc_id filter for '{document_id[:8]}...' removed all results "
-                f"(FAISS meta IDs don't match). Falling back to global search."
-            )
-            # Use the already-filtered global relevant list (above SIMILARITY_THRESHOLD)
-            # which was computed in STEP 2.  Don't reset to raw_results so we
-            # keep the quality bar.
-            # relevant is already set from STEP 2 — no change needed; just continue.
+            print(f"  ⚠️  No relevant chunks found in requested document '{document_id[:8]}...'.")
+            return []
 
     # ------------------------------------------------------------------
     # STEP 3b: Per-document chunk cap (global search only)
@@ -480,7 +469,10 @@ def search_chunks_fast(
     if not query or not query.strip():
         return []
 
-    raw_results = faiss_service.search(query_text=query, k=k)
+    # Default to finding 25 raw candidates if the caller just passes default `k=10`
+    search_k = 40 if k <= 10 else k
+    raw_results = faiss_service.search(query_text=query, k=search_k)
+    
     if not raw_results:
         return []
 
@@ -494,10 +486,12 @@ def search_chunks_fast(
             raw_results = faiss_service.search(query_text=query, k=20)
         filtered = [
             r for r in raw_results
-            if r.get("document_id") == document_id and r["similarity_score"] >= 0.10
+            if r.get("document_id") == document_id and r["similarity_score"] >= SIMILARITY_THRESHOLD
         ]
         if filtered:
             relevant = filtered
+        else:
+            return []
 
     # Per-doc chunk cap (global search only)
     if not document_id:
