@@ -1,4 +1,4 @@
-# DocuMind — Intelligent Document Question-Answering System (RAG)
+# DocuMind — Multi-Document Reasoning Engine (RAG)
 
 An advanced multi-document question-answering system built using Retrieval-Augmented Generation (RAG). It transforms static PDF document repositories into an interactive knowledge retrieval system, combining semantic search, lexical ranking, and cross-encoder reranking to generate highly grounded responses with precise citations.
 
