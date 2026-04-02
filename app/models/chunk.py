@@ -23,6 +23,7 @@ Relationship:
 """
 
 from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey
+import json
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
@@ -85,6 +86,11 @@ class Chunk(Base):
     # Character count — quick way to know how much text is on this page
     # Useful for filtering out near-empty pages
     char_count = Column(Integer, default=0)
+
+    # Embedding vector stored as JSON string (list of 384 floats).
+    # Persisting this avoids re-running the embedding model on every
+    # deployment restart — saves ~200MB peak memory on free tiers.
+    embedding = Column(Text, nullable=True)
 
     # When this chunk was created (auto-set by DB server)
     created_at = Column(

@@ -196,7 +196,6 @@ async def startup_event():
     from app.database.postgres import init_db, engine
     from app.models import document, chunk
     from app.services.faiss_service import index_has_vectors
-    from scripts.rebuild_faiss import rebuild_faiss_index
     import asyncio
 
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
@@ -208,11 +207,13 @@ async def startup_event():
         with engine.connect() as conn:
             logger.info("Database connection successful")
 
-        # ✅ Proper FAISS health check (Non-blocking)
+        # FAISS health check (lightweight, non-blocking)
+        # start.sh already builds FAISS from stored embeddings before uvicorn.
+        # This is a safety net for cases where start.sh was skipped (e.g. direct uvicorn).
         if not index_has_vectors():
             logger.warning("FAISS missing or empty — rebuilding in background")
 
-            # Fire and forget: run in background so server startup isn't blocked
+            from scripts.rebuild_faiss import rebuild_faiss_index
             asyncio.create_task(asyncio.to_thread(rebuild_faiss_index))
 
             logger.info("FAISS rebuild started in background")

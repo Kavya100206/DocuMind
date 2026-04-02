@@ -43,6 +43,7 @@ What is the full upload flow now?
 """
 
 import hashlib
+import json
 from sqlalchemy.orm import Session
 from app.models.document import Document
 from app.models.chunk import Chunk
@@ -163,6 +164,26 @@ def process_document(document_id: str, file_path: str, db: Session) -> Document:
         # embed_chunks() calls the local sentence-transformers model
         # and adds an "embedding" key to every chunk dict
         embedded = embed_chunks(small_chunks)
+
+        # ------------------------------------------------------------------
+        # STEP 5b: Persist embeddings to database
+        # ------------------------------------------------------------------
+        # Save embedding vectors as JSON to the Chunk table so we can
+        # rebuild FAISS on restart WITHOUT re-running the embedding model.
+        # This saves ~200MB peak memory on free-tier deployments.
+        for emb_chunk in embedded:
+            chunk_text = emb_chunk.get("text", "")
+            embedding_vec = emb_chunk.get("embedding")
+            if embedding_vec:
+                # Find matching DB chunk by document_id + text prefix
+                db_chunk = db.query(Chunk).filter(
+                    Chunk.document_id == document_id,
+                    Chunk.text.ilike(f"{chunk_text[:80]}%")
+                ).first()
+                if db_chunk:
+                    db_chunk.embedding = json.dumps(embedding_vec)
+        db.commit()
+        logger.info(f"Saved embeddings to database for {len(embedded)} chunks")
 
         # ------------------------------------------------------------------
         # STEP 6: Build / update the FAISS index
@@ -305,12 +326,26 @@ def reprocess_document(document_id: str, db: Session) -> Document:
         embedded = embed_chunks(small_chunks)
 
         # ------------------------------------------------------------------
+        # STEP 5b: Persist embeddings to database
+        # ------------------------------------------------------------------
+        for emb_chunk in embedded:
+            chunk_text = emb_chunk.get("text", "")
+            embedding_vec = emb_chunk.get("embedding")
+            if embedding_vec:
+                db_chunk = db.query(Chunk).filter(
+                    Chunk.document_id == document_id,
+                    Chunk.text.ilike(f"{chunk_text[:80]}%")
+                ).first()
+                if db_chunk:
+                    db_chunk.embedding = json.dumps(embedding_vec)
+        db.commit()
+        logger.info(f"Saved embeddings to database for reprocessed doc")
+
+        # ------------------------------------------------------------------
         # STEP 6: Rebuild FAISS from ALL chunks in the database
         # ------------------------------------------------------------------
         # We must rebuild from ALL documents (not just the reprocessed one)
         # to ensure every document's chunks are represented in the index.
-        # The reprocessed document has new chunks; other documents still
-        # have their existing chunks. A full rebuild keeps them all.
         import glob, os as _os
         from app.config.settings import settings as _settings
         for f in glob.glob(str(_settings.VECTOR_STORE_PATH) + ".*"):

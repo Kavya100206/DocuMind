@@ -1,14 +1,27 @@
 """
-Rebuild FAISS index properly — runs FULL pipeline from DB chunks.
+Rebuild FAISS index — MEMORY-OPTIMISED version for Railway/Render free tier.
+
+KEY CHANGE (memory fix):
+- OLD: Loaded all chunks from DB → re-embedded every one (loaded PyTorch + model)
+- NEW: Reads stored embeddings from DB → builds FAISS directly (NO model needed)
+
+This eliminates the ~200MB memory spike from loading the embedding model during
+startup. The embedding model is only loaded lazily when a user query comes in.
 
 Safe for:
 - manual run
 - FastAPI startup import
-- Railway deployment
+- Railway / Render deployment
 """
 
+import json
 import os
+import sys
 import glob
+
+# Ensure project root is on the path when running as a script
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -16,25 +29,23 @@ from app.config.settings import settings
 from app.database.postgres import SessionLocal
 from app.models.document import Document
 from app.models.chunk import Chunk
-from app.services.chunking_service import chunk_by_sections
-from app.services.embedding_service import embed_chunks
 from app.services import faiss_service
 
 
 def rebuild_faiss_index():
     from app.utils.logger import get_logger
     logger = get_logger(__name__)
-    
+
     faiss_service.IS_BUILDING = True
     logger.info("Setting IS_BUILDING = True. Starting background FAISS rebuild.")
-    
+
     db = SessionLocal()
 
     try:
         docs = db.query(Document).filter(Document.status == "completed").all()
         logger.info(f"Found {len(docs)} completed documents in DB")
 
-        all_embedded = []
+        all_chunk_dicts = []
 
         for doc in docs:
             page_chunks = db.query(Chunk).filter(Chunk.document_id == doc.id).all()
@@ -43,31 +54,66 @@ def rebuild_faiss_index():
                 logger.info(f"SKIP {doc.filename} — no chunks")
                 continue
 
-            pages_data = [
-                {
-                    "page_number": pc.page_number,
-                    "text": pc.text,
-                    "char_count": pc.char_count,
-                    "is_empty": not pc.text or len(pc.text.strip()) == 0,
-                }
-                for pc in page_chunks
-            ]
+            # Try to use stored embeddings first (no model needed!)
+            chunks_with_embeddings = [c for c in page_chunks if c.embedding]
+            chunks_without_embeddings = [c for c in page_chunks if not c.embedding]
 
-            section_chunks = chunk_by_sections(pages_data)
+            if chunks_with_embeddings:
+                logger.info(
+                    f"{doc.filename}: {len(chunks_with_embeddings)} chunks with stored embeddings"
+                )
+                for c in chunks_with_embeddings:
+                    all_chunk_dicts.append({
+                        "embedding": json.loads(c.embedding),
+                        "document_id": str(c.document_id),
+                        "page_number": c.page_number,
+                        "chunk_index": c.id,
+                        "text": c.text,
+                        "char_count": c.char_count or len(c.text),
+                    })
 
-            for c in section_chunks:
-                c["document_id"] = doc.id
+            if chunks_without_embeddings:
+                # Fallback: re-embed chunks that don't have stored embeddings
+                # This path is only hit for old data uploaded before this change
+                logger.warning(
+                    f"{doc.filename}: {len(chunks_without_embeddings)} chunks need re-embedding (no stored vectors)"
+                )
+                from app.services.chunking_service import chunk_by_sections
+                from app.services.embedding_service import embed_chunks
 
-            logger.info(
-                f"{doc.filename}: {len(page_chunks)} page → {len(section_chunks)} chunks"
-            )
+                pages_data = [
+                    {
+                        "page_number": pc.page_number,
+                        "text": pc.text,
+                        "char_count": pc.char_count,
+                        "is_empty": not pc.text or len(pc.text.strip()) == 0,
+                    }
+                    for pc in chunks_without_embeddings
+                ]
 
-            embedded = embed_chunks(section_chunks)
-            all_embedded.extend(embedded)
+                section_chunks = chunk_by_sections(pages_data)
+                for c in section_chunks:
+                    c["document_id"] = doc.id
 
-        logger.info(f"Total chunks to index: {len(all_embedded)}")
+                embedded = embed_chunks(section_chunks)
 
-        if not all_embedded:
+                # Save embeddings to DB for next restart
+                for emb_chunk in embedded:
+                    embedding_vec = emb_chunk.get("embedding")
+                    if embedding_vec:
+                        db_chunk = db.query(Chunk).filter(
+                            Chunk.document_id == doc.id,
+                            Chunk.text.ilike(f"{emb_chunk['text'][:80]}%")
+                        ).first()
+                        if db_chunk:
+                            db_chunk.embedding = json.dumps(embedding_vec)
+
+                db.commit()
+                all_chunk_dicts.extend(embedded)
+
+        logger.info(f"Total chunks to index: {len(all_chunk_dicts)}")
+
+        if not all_chunk_dicts:
             logger.info("No data to index")
             return
 
@@ -76,15 +122,14 @@ def rebuild_faiss_index():
             os.remove(f)
             logger.info(f"Deleted old index file: {f}")
 
-        faiss_service.build_and_save_index(all_embedded)
+        faiss_service.build_and_save_index(all_chunk_dicts)
 
-        # 🚨 CRITICAL FAISS CACHE CLEAR 🚨
         # Force the main FastAPI search thread to reload the new index from disk
         faiss_service._cached_index = None
         faiss_service._cached_metadata = None
 
         logger.info(
-            f"SUCCESS: FAISS rebuilt with {len(all_embedded)} vectors and global cache flushed."
+            f"SUCCESS: FAISS rebuilt with {len(all_chunk_dicts)} vectors and global cache flushed."
         )
 
     except Exception as e:
