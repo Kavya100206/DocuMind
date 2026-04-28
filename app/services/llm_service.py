@@ -53,12 +53,69 @@ Instead, we calculate it ourselves from FAISS similarity scores:
   and round to 2 decimal places.
 """
 
+import re
 from groq import Groq
 from typing import List, Dict, Any, Optional
 from app.config.settings import settings
 from app.utils.logger import get_logger
 
+# ── Language detection (Phase 2.1 — Multilingual Support) ──
+# `langdetect` is a small pure-Python library that returns an ISO 639-1
+# code ("en", "hi", "fr", ...) for a given string.
+# Setting DetectorFactory.seed makes detection deterministic — without it,
+# the same input can occasionally produce different codes due to internal
+# random sampling.
+from langdetect import detect, DetectorFactory, LangDetectException
+DetectorFactory.seed = 0
+
 logger = get_logger(__name__)
+
+
+# Map ISO codes to human-readable language names for use in the system prompt.
+# We only include languages we actually expect — adding more is harmless but
+# unused. Anything unmapped falls back to the ISO code itself.
+_LANGUAGE_NAMES = {
+    "en": "English",
+    "hi": "Hindi",
+    "bn": "Bengali",
+    "ta": "Tamil",
+    "te": "Telugu",
+    "mr": "Marathi",
+    "gu": "Gujarati",
+    "pa": "Punjabi",
+    "ur": "Urdu",
+    "fr": "French",
+    "es": "Spanish",
+    "de": "German",
+    "zh-cn": "Chinese",
+    "ja": "Japanese",
+    "ar": "Arabic",
+}
+
+
+def detect_language(text: str) -> str:
+    """
+    Detect the language of `text` and return a human-readable name.
+
+    Public utility — also used by agent_service to translate refusal messages
+    into the user's query language. Single source of truth for detection logic
+    so the agent and the LLM call always agree on the language.
+
+    Defaults to "English" when:
+      - text is empty or shorter than 4 characters (langdetect is unreliable
+        on very short input — a single word like "क्या?" can be misclassified)
+      - langdetect raises LangDetectException (e.g. all-whitespace, all-symbols)
+
+    The default is intentional: if we can't be confident, fall back to the
+    most common case rather than asking the LLM to reply in a wrong language.
+    """
+    if not text or len(text.strip()) < 4:
+        return "English"
+    try:
+        code = detect(text)
+        return _LANGUAGE_NAMES.get(code, code)
+    except LangDetectException:
+        return "English"
 
 
 
@@ -213,7 +270,12 @@ def rewrite_query(question: str, history: list = []) -> str:
     return question
 
 
-def build_prompt(question: str, context_chunks: List[Dict[str, Any]], history: list = []) -> str:
+def build_prompt(
+    question: str,
+    context_chunks: List[Dict[str, Any]],
+    history: list = [],
+    response_language: str = "English",
+) -> str:
     """
     Build the full prompt to send to Groq.
 
@@ -258,12 +320,62 @@ def build_prompt(question: str, context_chunks: List[Dict[str, Any]], history: l
 
     context_str = "\n\n".join(context_parts)
 
+    # Final nudge: the LAST thing the LLM sees before answering.
+    # If the user asked in a non-English language, repeat the language
+    # directive here so it dominates the immediate context window.
+    if response_language.lower() != "english":
+        language_reminder = (
+            f"\n\nFINAL REMINDER: Your answer MUST be written entirely in "
+            f"{response_language}. Translate the relevant facts from the "
+            f"context above into {response_language}. Do NOT respond in English."
+        )
+    else:
+        language_reminder = ""
+
+    # Synthesis directive: questions that ask for reasoning, motivation, or
+    # cause (V6.Q2: "Why might the Reserve Bank have made this decision based
+    # on the broader economic context?") routinely get refused by an 8B model
+    # that reads "Answer using ONLY what is explicitly stated" and bails on
+    # anything analytical — even when the rationale IS stated briefly in the
+    # chunks ("to ease potential liquidity stress…").
+    #
+    # Trigger on question shape (why/how/reasoning/rationale/...) OR on prior
+    # history (a follow-up turn is often this shape after pronoun resolution).
+    # The directive explicitly OVERRIDES the IMPORTANT REMINDER above so the
+    # LLM doesn't keep reading "If you cannot find an explicit answer, say so"
+    # and refusing.
+    is_synthesis_question = bool(re.search(
+        r"\b(?:why|how\s+come|rationale|reasoning|motivation|"
+        r"based\s+on\s+(?:the|this|broader|wider|overall)|"
+        r"for\s+what\s+reason|what\s+(?:was|is|were)\s+the\s+reason|"
+        r"explain\s+(?:the|this|why))\b",
+        question,
+        re.IGNORECASE,
+    ))
+    if is_synthesis_question or history:
+        followup_directive = (
+            "\n\nSYNTHESIS DIRECTIVE (overrides the previous reminder for this "
+            "question): This question asks for reasoning, motivation, or "
+            "cause. You MAY and SHOULD combine explicitly-stated facts from "
+            "the context to construct the answer. If the cause, rationale, or "
+            "motivating conditions are stated anywhere in the context (even "
+            "briefly, e.g. 'because…', 'in order to…', 'due to…', "
+            "'caused by…', 'as a result of…'), quote those snippets and "
+            "explain how they answer the question. Do NOT refuse with 'I "
+            "don't have enough information' just because the question's "
+            "framing sounds analytical or speculative. Refuse ONLY if NO "
+            "related facts (no causes, no reasons, no rationale fragments) "
+            "appear in the context at all."
+        )
+    else:
+        followup_directive = ""
+
     return f"""{history_block}Context from documents:
 {context_str}
 
 Question: {question}
 
-IMPORTANT REMINDER: Answer using ONLY what is explicitly stated above. Do NOT calculate, infer, or add up values. If a total or summary value is stated in the context, quote it directly. If you cannot find an explicit answer, say so.
+IMPORTANT REMINDER: Answer using ONLY what is explicitly stated above. Do NOT calculate, infer, or add up values. If a total or summary value is stated in the context, quote it directly. If you cannot find an explicit answer, say so.{followup_directive}{language_reminder}
 
 Answer:"""
 
@@ -274,33 +386,52 @@ def calculate_confidence(chunks: List[Dict[str, Any]], answer_text: str = "") ->
 
     HOW IT WORKS:
     -------------
-    Instead of heavily punishing the average if one chunk scored poorly,
-    we base the core confidence on the *best* piece of evidence found.
-    Then we apply slight bonuses/penalties based on how many chunks supported it
-    and whether the LLM wrote a detailed answer.
+    Picks the BEST available signal in order of accuracy:
+      1. reranker_score  — cross-encoder sigmoid, already 0–1 calibrated
+      2. hybrid_score    — FAISS+BM25 blend, ~0–0.5 typical
+      3. similarity_score — raw FAISS cosine, ~0.05–0.30 typical
+
+    Each scoring source needs different scaling: a reranker_score of 0.6 means
+    "highly relevant" and shouldn't be multiplied by 3.2 (that would saturate
+    instantly), while a raw cosine of 0.20 means the same thing and DOES need
+    scaling to land near 0.65 confidence.
+
+    We then apply small bonuses for multi-chunk support and small penalties
+    for terse answers.
     """
 
     if not chunks:
         return 0.0
 
-    # 1. Base Score: The most relevant piece of evidence
-    scores = [c.get("similarity_score", 0.0) for c in chunks]
-    best_score = max(scores)
-    
-    # Scale up (all-MiniLM-L6 raw cosine scores are naturally low: ~0.15–0.30)
-    # 0.25 * 3.2 = 0.80. Cap Base at 0.85
-    base_confidence = min(best_score * 3.2, 0.85)
+    # 1. Pick the highest-quality signal available across the chunks
+    if any(c.get("reranker_score") is not None for c in chunks):
+        scores = [c.get("reranker_score") or 0.0 for c in chunks]
+        best_score = max(scores)
+        # Reranker is already 0–1 sigmoid; use almost directly
+        base_confidence = min(best_score * 1.05, 0.95)
+        strong_threshold = 0.55
+    elif any(c.get("hybrid_score") is not None for c in chunks):
+        scores = [c.get("hybrid_score") or 0.0 for c in chunks]
+        best_score = max(scores)
+        # Hybrid blends FAISS+BM25, typically lower; scale up moderately
+        base_confidence = min(best_score * 2.0, 0.90)
+        strong_threshold = 0.30
+    else:
+        scores = [c.get("similarity_score", 0.0) for c in chunks]
+        best_score = max(scores)
+        # Raw FAISS cosine — original aggressive scaling
+        base_confidence = min(best_score * 3.2, 0.85)
+        strong_threshold = 0.15
 
-    # 2. Volume Bonus: Are there multiple supporting chunks?
-    # +0.02 for each additional chunk above 0.15 similarity, max +0.10
-    strong_chunks = sum(1 for s in scores if s > 0.15)
+    # 2. Volume bonus: multiple strong chunks → slightly more confident
+    strong_chunks = sum(1 for s in scores if s > strong_threshold)
     volume_bonus = min((strong_chunks - 1) * 0.02, 0.10) if strong_chunks > 1 else 0.0
 
-    # 3. Answer Length Penalty: Weak/short answers shouldn't get 90% confidence
+    # 3. Length penalty: a one-sentence answer to a complex question is suspect
     length_penalty = 0.0
     word_count = len(answer_text.split()) if answer_text else 0
     if 0 < word_count < 15:
-        length_penalty = -0.15  # Terse, probably missing details
+        length_penalty = -0.15
     elif word_count == 0:
         length_penalty = -0.50
 
@@ -349,7 +480,8 @@ def generate_answer(
     question: str,
     context_chunks: List[Dict[str, Any]],
     history: list = [],
-    max_tokens: int = 1024   # Increased from 512 → prevents truncation when listing multiple items
+    max_tokens: int = 1024,   # Increased from 512 → prevents truncation when listing multiple items
+    language: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generate a grounded answer using Groq.
@@ -445,22 +577,92 @@ def generate_answer(
             "has_answer": False
         }
 
+    # ── Language resolution (Phase 2.1) ──
+    # If the caller gave us a language (the agent does — it detected on the
+    # ORIGINAL user query before query rewriting), trust it. Otherwise detect
+    # locally on the question we received.
+    #
+    # WHY THIS MATTERS:
+    # `question` here is often the rewritten query, which may have flipped
+    # to a different language than what the user typed (e.g. the rewriter
+    # pulled from English chat history when the current query was English
+    # but a previous turn was Hindi). Detecting on the rewritten query
+    # caused the bug where an English "Summarize the document" returned
+    # a Hindi answer.
+    if language:
+        detected_language = language
+        print(f"  🌐 Language: {detected_language} (from agent — original query)")
+    else:
+        detected_language = detect_language(question)
+        print(f"  🌐 Language: {detected_language} (detected from question)")
+
     # ------------------------------------------------------------------
     # STEP 2: Build the prompt
     # ------------------------------------------------------------------
-    user_message = build_prompt(question, context_chunks, history=history)
+    user_message = build_prompt(
+        question,
+        context_chunks,
+        history=history,
+        response_language=detected_language,
+    )
+
+    # Build the per-call system prompt.
+    # WHY ORDER MATTERS:
+    #   LLMs weight earlier instructions more heavily. Rule 4 of SYSTEM_PROMPT
+    #   says "quote verbatim — do not rephrase". For English queries on English
+    #   chunks that's correct. For Hindi queries on English chunks, "verbatim"
+    #   would keep the answer in English — which is exactly the bug we hit.
+    #
+    # FIX:
+    #   When the query is non-English, PREPEND a categorical language override
+    #   at the very top so the LLM reads "answer in Hindi" before it reads
+    #   any rule about verbatim quoting. We also explicitly tell it that
+    #   translating English context into Hindi is REQUIRED, not optional.
+    if detected_language.lower() != "english":
+        # Strong directive at the TOP of the system prompt so it dominates
+        # the LLM's instruction-following. We can't just say "keep tech terms
+        # in original language" — once an LLM is in Hindi mode it transliterates
+        # "React" → "रिएक्ट" by default. We must explicitly forbid Devanagari
+        # for these tokens and show a concrete correct/incorrect example,
+        # which is the most reliable instruction-following signal for 8B models.
+        language_directive = (
+            f"⚠️ CRITICAL LANGUAGE INSTRUCTION ⚠️\n"
+            f"YOUR ENTIRE RESPONSE MUST BE WRITTEN IN {detected_language.upper()}.\n"
+            f"The source documents may be in English. You MUST translate the "
+            f"information into {detected_language} when writing your answer.\n"
+            f"This OVERRIDES any rule below about quoting verbatim — translate "
+            f"the meaning faithfully into {detected_language}.\n\n"
+            f"🚨 CRITICAL — DO NOT TRANSLITERATE THESE TO {detected_language.upper()} SCRIPT:\n"
+            f"The following MUST appear in their ORIGINAL LATIN/ENGLISH SCRIPT, "
+            f"never written in the {detected_language} alphabet:\n"
+            f"  • Technical terms: React, Node.js, MongoDB, OpenAI, API, FAISS, "
+            f"JavaScript, Python, SQL, ML, AI, etc.\n"
+            f"  • Company / brand / product names: Google, Microsoft, Anthropic, "
+            f"AWS, GitHub, etc.\n"
+            f"  • Proper nouns: names of people, places, projects (unless they "
+            f"have an established native spelling)\n"
+            f"  • File names, page numbers, and any code/identifiers\n\n"
+            f"EXAMPLE (Hindi):\n"
+            f"  ✅ CORRECT:   \"उन्होंने React और Node.js का उपयोग करके MongoDB से जुड़ने वाला एक app बनाया।\"\n"
+            f"  ❌ INCORRECT: \"उन्होंने रिएक्ट और नोड.जेएस का उपयोग करके मोंगोडीबी से जुड़ने वाला एक ऐप बनाया।\"\n\n"
+            f"Maintain the citation format ([Page N - filename.pdf]) regardless of language.\n\n"
+        )
+        system_prompt_for_call = language_directive + SYSTEM_PROMPT
+    else:
+        # English query → no override needed, keep the original prompt clean
+        system_prompt_for_call = SYSTEM_PROMPT
 
     # ------------------------------------------------------------------
     # STEP 3: Call Groq API
     # ------------------------------------------------------------------
     # The Groq client sends a list of "messages" — same pattern as OpenAI.
-    # "system" = the rules/persona for the LLM
+    # "system" = the rules/persona for the LLM (now language-aware)
     # "user"   = the actual input (context + question)
     try:
         response = client.chat.completions.create(
             model=settings.GROQ_MODEL,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt_for_call},
                 {"role": "user", "content": user_message}
             ],
             max_tokens=max_tokens,
@@ -469,6 +671,9 @@ def generate_answer(
 
         # Extract the generated text from the response object
         answer_text = response.choices[0].message.content.strip()
+        # TEMP DIAGNOSTIC — surface the opening so we can see why the hedging
+        # detector is firing on follow-up questions. Remove once V6.Q2 stabilizes.
+        print(f"  📝 LLM answer opening: {answer_text[:300]!r}")
 
     except Exception as e:
         print(f"  ❌ Groq API error: {e}")
@@ -482,7 +687,12 @@ def generate_answer(
     # ------------------------------------------------------------------
     # STEP 4: Determine if the answer is meaningful
     # ------------------------------------------------------------------
-    # If the LLM said it doesn't know, mark has_answer = False
+    # If the LLM led with "I don't know", mark has_answer = False.
+    # We only scan the OPENING (first ~200 chars) — a hedge sentence at the
+    # end of a long, substantive answer is a caveat, not a refusal, and
+    # killing it caused V6.Q2-style false negatives where the LLM gave the
+    # right reasoning then added "I don't have enough information about the
+    # broader economic context" as a final note.
     no_info_phrases = [
         "don't have enough information",
         "cannot answer",
@@ -490,7 +700,8 @@ def generate_answer(
         "not provided in",
         "no information"
     ]
-    has_answer = not any(phrase in answer_text.lower() for phrase in no_info_phrases)
+    opening = answer_text[:200].lower()
+    has_answer = not any(phrase in opening for phrase in no_info_phrases)
 
     # ------------------------------------------------------------------
     # STEP 5: Build citations from the chunks that were used

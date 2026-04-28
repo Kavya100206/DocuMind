@@ -301,3 +301,23 @@ def index_has_vectors() -> bool:
         return index.ntotal > 0
     except:
         return False
+
+
+def get_all_chunks_metadata() -> List[Dict[str, Any]]:
+    """
+    Return all chunk metadata currently stored in the FAISS index.
+
+    WHY THIS EXISTS:
+    ----------------
+    The keyword_search agent tool needs access to ALL chunk texts
+    so BM25 can score them by keyword frequency.
+
+    FAISS's .meta file already holds this — we just expose it
+    through a clean function instead of touching the global directly.
+
+    Returns:
+        List of chunk metadata dicts (text, page_number, document_id, etc.)
+        Empty list if no index is loaded yet.
+    """
+    _, metadata = load_index()
+    return metadata if metadata is not None else []

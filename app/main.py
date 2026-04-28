@@ -18,6 +18,19 @@ What happens here?
 """
 
 import os
+import sys
+
+# Force UTF-8 on stdout/stderr so emoji-laden print() / logger calls
+# don't crash on Windows (default cp1252 codec can't encode \U0001f916 etc.).
+# Without this, _get_model()'s "🤖 Loading embedding model..." print kills the
+# embedding load and downstream retrieval returns zero chunks.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -28,6 +41,12 @@ from app.controllers import document_controller
 from app.controllers import search_controller
 from app.controllers import qa_controller
 from app.controllers import system_controller
+# Phase 1 — Google Drive Integration
+# drive_controller exposes TWO routers:
+#   auth_router  → /auth/google and /auth/google/callback (OAuth2 flow)
+#   drive_router → /api/drive/... (file list, ingest, webhook)
+from app.controllers.drive_controller import auth_router as drive_auth_router
+from app.controllers.drive_controller import drive_router
 from app.services import faiss_service
 
 logger = get_logger(__name__)
@@ -56,6 +75,9 @@ app.include_router(document_controller.router)
 app.include_router(search_controller.router)
 app.include_router(qa_controller.router)
 app.include_router(system_controller.router)
+# Phase 1 — Google Drive routers
+app.include_router(drive_auth_router)   # /auth/google, /auth/google/callback
+app.include_router(drive_router)        # /api/drive/files, /ingest, /webhook
 
 # ---------------------------------------------------------------------------
 # GLOBAL EXCEPTION HANDLER

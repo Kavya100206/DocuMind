@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     GROQ_MODEL: str = "llama-3.3-70b-versatile"  # Upgraded: better reasoning over long documents
 
+    # Google Drive OAuth2 (Phase 1 — Drive Integration)
+    # Get these from Google Cloud Console → APIs & Services → Credentials
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/auth/google/callback"
+
     # Embedding Settings — LOCAL model
     # Model: sentence-transformers/all-MiniLM-L6-v2 — ~80MB, perfect for Render Free
     LOCAL_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"

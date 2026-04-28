@@ -253,6 +253,17 @@ def search_chunks(
     if not query or not query.strip():
         return []
 
+    # ── Strict PDF Isolation Guard ──
+    # document_id is REQUIRED. DocuMind is document-scoped.
+    # If this is ever called without a document_id, it means a gate above
+    # (qa_controller) failed. We raise here to catch that bug loudly
+    # rather than silently searching across all documents.
+    if not document_id:
+        raise ValueError(
+            "search_chunks() called without document_id. "
+            "DocuMind requires a document to be selected before searching."
+        )
+
     # ------------------------------------------------------------------
     # STEP 1: Search FAISS
     # ------------------------------------------------------------------
@@ -468,6 +479,14 @@ def search_chunks_fast(
     """
     if not query or not query.strip():
         return []
+
+    # ── Strict PDF Isolation Guard ──
+    # document_id is REQUIRED. Same reasoning as search_chunks() above.
+    if not document_id:
+        raise ValueError(
+            "search_chunks_fast() called without document_id. "
+            "DocuMind requires a document to be selected before searching."
+        )
 
     # Default to finding 25 raw candidates if the caller just passes default `k=10`
     search_k = 40 if k <= 10 else k

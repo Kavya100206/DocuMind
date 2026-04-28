@@ -19,7 +19,7 @@ from typing import Optional, List
 from app.database.postgres import get_db
 from app.services import retrieval_service
 from app.services import llm_service
-from app.views.qa_views import QAResponse, Citation
+from app.views.qa_views import QAResponse, Citation, RetrievalTrace, ChunkTrace, RouterInfo
 from app.config.settings import settings
 
 router = APIRouter(prefix="/api", tags=["Question Answering"])
@@ -37,14 +37,20 @@ class AskRequest(BaseModel):
     Request body for POST /api/ask
 
     question:    The user's question in plain English
-    document_id: Optional — restrict search to one document
+    document_id: REQUIRED — the ID of the document to search within.
+                 DocuMind is document-scoped: you must select a document first.
+                 This prevents cross-document contamination.
     session_id:  Optional — enables conversation memory across turns
     k:           How many chunks to retrieve as context (default TOP_K_RESULTS)
     """
     question: str
-    document_id: Optional[str] = None
+    document_id: Optional[str] = None   # validated manually below for a clean 400 error
     session_id: Optional[str] = None
     k: int = settings.TOP_K_RESULTS
+    # Phase 3.1: when true, the response includes a per-chunk score trace
+    # for debugging / demoing the retrieval pipeline. Default False to keep
+    # normal traffic light.
+    debug_mode: bool = False
 
 
 @router.post(
@@ -81,6 +87,21 @@ def ask_question(
         raise HTTPException(
             status_code=503,
             detail="The search index is currently being built in the background. Please wait a few moments and try again."
+        )
+
+    # ── Gate 2: document_id is required (Gate 1 is in the frontend) ──
+    # DocuMind is document-scoped. Without a document_id we have no way
+    # to know WHICH document to search, and searching all docs risks
+    # cross-contamination (answer for doc A leaks into a query about doc B).
+    #
+    # WHY a manual check instead of making it required in Pydantic?
+    # Pydantic's 422 error returns a wall of JSON the frontend can't cleanly
+    # show to the user. Our 400 returns a simple "detail" string.
+    if not request.document_id or not request.document_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Please select a document before asking a question. "
+                   "DocuMind only answers based on an uploaded document's contents."
         )
 
     # Short query guard
@@ -140,92 +161,79 @@ def ask_question(
 
 
     try:
-        # STEP 2: Query Rewriting
-        # Semantically broadens the query (resolves pronouns, preserves intent).
-        # The REWRITTEN query goes to FAISS; the ORIGINAL question goes to the LLM.
-        rewritten_query = llm_service.rewrite_query(question=question, history=history)
+        # ----------------------------------------------------------------
+        # STEPS 2–4: Agentic Retrieval Loop (Phase 2)
+        # ----------------------------------------------------------------
+        # The agent:
+        #   1. Rewrites the query (same as before)
+        #   2. Lets the LLM pick which retrieval tool to run
+        #   3. Checks confidence → loops or generates
+        #   4. Falls back to the original pipeline if 3 attempts fail
+        #
+        # The agent is created fresh for this request and discarded
+        # after run_agent() returns. No global agent. No shared state.
+        from app.services import agent_service
 
-        # STEP 3: Dual Query Retrieval (fast path)
-        # Use search_chunks_fast() which skips the expensive cross-encoder.
-        # We gather candidates from BOTH query formulations, merge unique chunks,
-        # then run the cross-encoder ONCE on the merged pool.
-        # Result: same quality as before but reranker inference happens only ONCE.
-        from app.services import reranker_service
-        chunks_rewritten = retrieval_service.search_chunks_fast(
-            query=rewritten_query,
+        agent_result = agent_service.run_agent(
+            query=question,
             db=db,
-            k=request.k,
-            document_id=request.document_id
+            document_id=request.document_id,
+            history=history,
+            debug_mode=request.debug_mode,
         )
 
-        chunks_original = []
-        if rewritten_query != question:
-            chunks_original = retrieval_service.search_chunks_fast(
-                query=question,
-                db=db,
-                k=request.k,
-                document_id=request.document_id
-            )
-
-        print(f"  [DEBUG] chunks_rewritten: {len(chunks_rewritten)} chunks from '{rewritten_query[:40]}'")
-        print(f"  [DEBUG] chunks_original:  {len(chunks_original)} chunks from '{question[:40]}'")
-
-        # Merge unique chunks (rewritten results have priority)
-        seen_keys: set = set()
-        merged = []
-        for c in chunks_rewritten + chunks_original:
-            key = (c.get("document_id"), c.get("chunk_index"))
-            if key not in seen_keys:
-                seen_keys.add(key)
-                merged.append(c)
-
-        print(f"  [DEBUG] merged: {len(merged)} unique candidates before reranker")
-        if merged:
-            top_score = max(c.get("hybrid_score") or c.get("similarity_score", 0) for c in merged)
-            print(f"  [DEBUG] best hybrid/sim score in merged pool: {top_score:.4f}")
-
-        # Apply cross-encoder ONCE on the merged candidate pool
-        chunks = reranker_service.rerank(
-            query=rewritten_query,
-            chunks=merged,
-            top_n=settings.RERANKER_TOP_N
-        )
-        print(f"  [DEBUG] after rerank: {len(chunks)} chunks selected")
-        if chunks:
-            print(f"  [DEBUG] reranker scores: {[c.get('reranker_score') for c in chunks]}")
-
-        # STEP 4: Generate answer with Groq
-        result = llm_service.generate_answer(
-            question=question,       # original question as the final prompt
-            context_chunks=chunks,
-            history=history          # conversation context
+        # Log which path was taken (visible in uvicorn console)
+        fallback_tag = " [FALLBACK]" if agent_result.get("fallback_used") else " [AGENT]"
+        print(
+            f"{fallback_tag} tools={agent_result.get('tools_tried')}, "
+            f"chunks={agent_result.get('chunks_used')}, "
+            f"confidence={agent_result.get('confidence')}"
         )
 
-        # STEP 5: Save to session history
+        # STEP 5: Save to session history (unchanged)
         if session_id:
             if session_id not in _sessions:
                 _sessions[session_id] = []
 
             _sessions[session_id].append({"role": "user",      "content": question})
-            _sessions[session_id].append({"role": "assistant", "content": result["answer"]})
+            _sessions[session_id].append({"role": "assistant", "content": agent_result["answer"]})
 
-            # Trim old messages to stay within memory limit
             if len(_sessions[session_id]) > MAX_HISTORY_PER_SESSION:
                 _sessions[session_id] = _sessions[session_id][-MAX_HISTORY_PER_SESSION:]
 
             print(f"  Session '{session_id[:8]}...' now has {len(_sessions[session_id])} messages")
 
         # STEP 6: Shape and return the response
-        citations = [Citation(**c) for c in result["citations"]]
+        citations = [Citation(**c) for c in agent_result["citations"]]
+
+        # Pass the observability trace through to the frontend (Phase 2.3).
+        # Defensive: agent_result["trace"] should always exist now, but if
+        # an older code path or a hard error returns without it, default to
+        # None — the frontend already handles the missing-trace case.
+        trace_dict = agent_result.get("trace")
+        trace = RetrievalTrace(**trace_dict) if trace_dict else None
+
+        # Phase 3.1 — full per-chunk trace (only when debug_mode=True)
+        chunk_trace_list = agent_result.get("chunk_trace")
+        chunk_trace = (
+            [ChunkTrace(**c) for c in chunk_trace_list] if chunk_trace_list else None
+        )
+
+        # Phase 3.2 — router's tool choice + reasoning
+        routing_dict = agent_result.get("routing")
+        routing = RouterInfo(**routing_dict) if routing_dict else None
 
         return QAResponse(
             question=question,
-            answer=result["answer"],
+            answer=agent_result["answer"],
             citations=citations,
-            confidence=result["confidence"],
-            has_answer=result["has_answer"],
+            confidence=agent_result["confidence"],
+            has_answer=agent_result["has_answer"],
             model_used=settings.GROQ_MODEL,
-            rewritten_query=rewritten_query if rewritten_query != question else None,
+            rewritten_query=None,   # rewriting is handled inside agent_service
+            trace=trace,
+            chunk_trace=chunk_trace,
+            routing=routing,
         )
 
     except Exception as e:

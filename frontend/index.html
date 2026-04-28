@@ -656,6 +656,281 @@
       margin-top: 8px;
     }
 
+    /* Refusal banner — shown when has_answer === false */
+    .refusal-card {
+      background: rgba(239, 68, 68, 0.06);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-left: 4px solid var(--danger);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      max-width: 85%;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .refusal-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+    .refusal-body { flex: 1; }
+    .refusal-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--danger);
+      margin-bottom: 4px;
+    }
+    .refusal-msg { font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .refusal-confidence {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 8px;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Retrieval Info panel (Phase 2.3) ── */
+    .trace-wrap {
+      margin-top: 10px;
+    }
+    .trace-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--accent-lt);
+      cursor: pointer;
+      user-select: none;
+      width: fit-content;
+    }
+    .trace-toggle .arrow {
+      transition: transform .2s;
+      display: inline-block;
+    }
+    .trace-toggle.open .arrow {
+      transform: rotate(90deg);
+    }
+    .trace-panel {
+      margin-top: 10px;
+      display: none;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent-lt);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .trace-panel.open { display: block; }
+    .trace-grid {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 14px;
+      font-size: 12px;
+    }
+    .trace-key {
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .trace-val {
+      color: var(--text);
+      font-family: 'Inter', monospace;
+    }
+    .trace-val code {
+      font-family: inherit;
+      background: rgba(124, 58, 237, 0.12);
+      color: var(--accent-lt);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .trace-val.fallback-yes { color: var(--warning); }
+
+    /* ── Chunk trace table (Phase 3.1 — Debug Mode) ── */
+    .chunk-trace-wrap {
+      margin-top: 10px;
+    }
+    .chunk-trace-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--accent-lt);
+      cursor: pointer;
+      user-select: none;
+      width: fit-content;
+    }
+    .chunk-trace-toggle .arrow {
+      transition: transform .2s;
+      display: inline-block;
+    }
+    .chunk-trace-toggle.open .arrow { transform: rotate(90deg); }
+
+    .chunk-trace-panel {
+      margin-top: 10px;
+      display: none;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--warning);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-x: auto;
+    }
+    .chunk-trace-panel.open { display: block; }
+    .chunk-trace-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      min-width: 720px;
+    }
+    .chunk-trace-table th,
+    .chunk-trace-table td {
+      padding: 6px 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .chunk-trace-table th {
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 10px;
+      position: sticky;
+      top: 0;
+      background: var(--card);
+    }
+    .chunk-trace-table tr.chunk-selected td {
+      background: rgba(34, 197, 94, 0.06);
+    }
+    .chunk-trace-table tr.chunk-dropped td {
+      opacity: 0.5;
+    }
+    .chunk-trace-table .preview-cell {
+      max-width: 280px;
+      color: var(--muted);
+      font-style: italic;
+    }
+    .chunk-trace-table .score-cell {
+      font-family: monospace;
+      color: var(--text);
+    }
+    .chunk-trace-table .score-cell.empty { color: var(--muted); }
+
+    /* ── Debug toggle pill in input area (Phase 3.1) ── */
+    .debug-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 12px;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      transition: all .18s;
+    }
+    .debug-toggle.on {
+      border-color: var(--warning);
+      color: var(--warning);
+      background: rgba(245, 158, 11, 0.08);
+    }
+    .debug-toggle input { display: none; }
+
+    /* ── Summary button + modal (Phase 3.3) ── */
+    .btn-summarize {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin: 0 12px 12px;
+      padding: 9px 14px;
+      width: calc(100% - 24px);
+      border: 1px solid var(--accent);
+      background: rgba(124, 58, 237, 0.08);
+      color: var(--accent-lt);
+      border-radius: var(--radius);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .18s;
+    }
+    .btn-summarize:hover:not(:disabled) {
+      background: rgba(124, 58, 237, 0.18);
+      color: #fff;
+    }
+    .btn-summarize:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    .summary-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .summary-modal-overlay.open { display: flex; }
+    .summary-modal {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      max-width: 720px;
+      width: 100%;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      animation: fadeUp .25s ease;
+    }
+    .summary-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .summary-modal-title {
+      font-size: 15px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .summary-modal-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 18px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+    .summary-modal-close:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .summary-modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .summary-modal-body.loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--muted);
+    }
+    .summary-doc-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
     /* Toast */
     #toast {
       position: fixed;
@@ -686,6 +961,148 @@
     #toast.error {
       border-color: var(--danger);
       color: var(--danger);
+    }
+
+    /* ── Google Drive UI ── */
+    .upload-divider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .upload-divider::before,
+    .upload-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .btn-drive {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin: 0 12px 12px;
+      padding: 10px 16px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .2s;
+      width: calc(100% - 24px);
+    }
+    .btn-drive:hover {
+      border-color: #4285f4;
+      background: rgba(66,133,244,0.08);
+      color: #fff;
+    }
+    .btn-drive svg {
+      flex-shrink: 0;
+    }
+
+    /* Drive file browser panel */
+    .drive-panel {
+      margin: 0 12px 12px;
+      border: 1px solid rgba(66,133,244,0.3);
+      border-radius: var(--radius);
+      background: rgba(66,133,244,0.05);
+      overflow: hidden;
+      animation: fadeUp .2s ease;
+    }
+    .drive-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(66,133,244,0.2);
+      font-size: 12px;
+      font-weight: 600;
+      color: #4285f4;
+    }
+    .drive-panel-header button {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0 4px;
+      line-height: 1;
+    }
+    .drive-panel-header button:hover { color: var(--text); }
+
+    .drive-file-list {
+      max-height: 220px;
+      overflow-y: auto;
+      padding: 6px 0;
+    }
+    .drive-file-list::-webkit-scrollbar { width: 4px; }
+    .drive-file-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .drive-file-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      transition: background .15s;
+    }
+    .drive-file-item:hover { background: rgba(255,255,255,0.04); }
+    .drive-file-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .drive-file-name {
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text);
+    }
+    .drive-file-meta {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+    .btn-import {
+      flex-shrink: 0;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(66,133,244,0.4);
+      background: rgba(66,133,244,0.1);
+      color: #4285f4;
+      font-size: 11px;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .btn-import:hover {
+      background: rgba(66,133,244,0.25);
+      border-color: #4285f4;
+    }
+    .btn-import:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+    .drive-already {
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--success);
+      font-weight: 600;
+    }
+    .drive-loading, .drive-empty {
+      padding: 20px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
     }
   </style>
 </head>
@@ -723,15 +1140,49 @@
     <aside>
       <div class="sidebar-header">📁 Documents</div>
 
-      <!-- Upload zone -->
+      <!-- Upload zone — local file -->
       <div class="upload-zone" id="upload-zone">
         <input type="file" id="file-input" accept=".pdf" />
         <div class="upload-icon">📤</div>
-        <p><strong>Upload PDFs</strong> to ask questions using AI.</p>
+        <p><strong>Upload PDF</strong> from your computer</p>
+      </div>
+
+      <!-- Divider -->
+      <div class="upload-divider">or</div>
+
+      <!-- Google Drive button -->
+      <button class="btn-drive" id="btn-drive" onclick="handleDriveClick()">
+        <!-- Google Drive colour logo -->
+        <svg width="16" height="16" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">
+          <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+          <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
+          <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
+          <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+          <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
+          <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 27h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+        </svg>
+        Browse Google Drive
+      </button>
+
+      <!-- Drive file browser panel (shown after OAuth or when already connected) -->
+      <div class="drive-panel" id="drive-panel" style="display:none">
+        <div class="drive-panel-header">
+          <span>🟢 Google Drive</span>
+          <button onclick="closeDrivePanel()" title="Close">✕</button>
+        </div>
+        <div class="drive-file-list" id="drive-file-list">
+          <div class="drive-loading">Loading your Drive files…</div>
+        </div>
       </div>
 
       <!-- Upload progress -->
       <div id="upload-status" style="padding:0 12px 8px; font-size:12px; color:var(--muted); display:none;"></div>
+
+      <!-- Summarize Document button (Phase 3.3) -->
+      <!-- Disabled until a document is selected from the dropdown below -->
+      <button class="btn-summarize" id="btn-summarize" onclick="summarizeDocument()" disabled>
+        📄 Summarize Document
+      </button>
 
       <!-- Document list -->
       <div class="doc-list" id="doc-list">
@@ -758,8 +1209,8 @@
         <div class="input-row">
           <textarea class="input-box" id="question-input" placeholder="Ask a question about your documents…"
             rows="1"></textarea>
-          <select class="doc-filter" id="doc-filter">
-            <option value="">All documents</option>
+          <select class="doc-filter" id="doc-filter" onchange="updateAskGate()">
+            <option value="">Select a document…</option>
           </select>
           <button class="btn-ask" id="btn-ask" onclick="askQuestion()">
             Ask <span>→</span>
@@ -771,8 +1222,37 @@
           <div class="chip" onclick="fillQuestion(this)">What technologies are used?</div>
           <div class="chip" onclick="fillQuestion(this)">Where is the candidate studying?</div>
         </div>
+        <div id="ask-hint" style="font-size:12px; color:var(--warning); margin-top:4px; display:none;">
+          ⚠️ Select a document from the dropdown above before asking a question.
+        </div>
+
+        <!-- Debug Mode toggle (Phase 3.1) -->
+        <!-- When on, /api/ask responses include a per-chunk score table -->
+        <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+          <label class="debug-toggle" id="debug-toggle">
+            <input type="checkbox" id="debug-checkbox" onchange="toggleDebugMode()" />
+            🧪 <span id="debug-label">Debug Mode: Off</span>
+          </label>
+          <span style="font-size:11px; color:var(--muted)">
+            Shows per-chunk scores (FAISS, BM25, reranker)
+          </span>
+        </div>
       </div>
     </main>
+  </div>
+
+  <!-- Summary Modal (Phase 3.3) — separate panel, not in chat -->
+  <div class="summary-modal-overlay" id="summary-modal-overlay" onclick="closeSummaryIfOverlay(event)">
+    <div class="summary-modal" onclick="event.stopPropagation()">
+      <div class="summary-modal-header">
+        <div class="summary-modal-title">📄 Document Summary</div>
+        <button class="summary-modal-close" onclick="closeSummary()" title="Close">✕</button>
+      </div>
+      <div class="summary-modal-body" id="summary-modal-body">
+        <div class="dots"><span></span><span></span><span></span></div>
+        Generating summary…
+      </div>
+    </div>
   </div>
 
   <!-- Toast -->
@@ -782,6 +1262,8 @@
     const API = '';   // same origin — FastAPI serves both
     let documents = [];
     let isAsking = false;
+    let debugMode = false;        // Phase 3.1 — when true, requests ask for per-chunk trace
+    let isSummarizing = false;    // Phase 3.3 — guard against double-clicks on summary button
 
     // ── Init ──────────────────────────────────────────────────────────────────
     window.addEventListener('DOMContentLoaded', () => {
@@ -814,6 +1296,37 @@
       } catch (e) { }
     }
 
+    // Gate 1: enable Ask button only when a document is actually selected.
+    // The doc-filter being set to "All documents" (empty value) means no doc is chosen.
+    // Also gates the Summarize button (Phase 3.3) — needs a selected doc.
+    function updateAskGate() {
+      const sel = document.getElementById('doc-filter');
+      const input = document.getElementById('question-input');
+      const btn = document.getElementById('btn-ask');
+      const hint = document.getElementById('ask-hint');
+      const summarizeBtn = document.getElementById('btn-summarize');
+      const hasDocs = documents.some(d => d.status === 'completed');
+      const hasSelection = sel.value !== '';
+
+      const locked = !hasDocs || !hasSelection;
+      input.disabled = locked;
+      btn.disabled = locked || isAsking;
+      input.placeholder = locked
+        ? 'Select a document above to start asking questions…'
+        : 'Ask a question about your document…';
+      if (hint) hint.style.display = locked ? 'block' : 'none';
+      if (summarizeBtn) summarizeBtn.disabled = locked || isSummarizing;
+    }
+
+    // Phase 3.1 — toggle debug mode on/off
+    function toggleDebugMode() {
+      debugMode = document.getElementById('debug-checkbox').checked;
+      const toggle = document.getElementById('debug-toggle');
+      const label = document.getElementById('debug-label');
+      toggle.classList.toggle('on', debugMode);
+      label.textContent = `Debug Mode: ${debugMode ? 'On' : 'Off'}`;
+    }
+
     function renderDocList() {
       const el = document.getElementById('doc-list');
       if (!documents.length) {
@@ -844,6 +1357,9 @@
         documents.filter(d => d.status === 'completed')
           .map(d => `<option value="${d.id}">${d.filename}</option>`).join('');
       sel.value = cur;
+
+      // Gate 1: lock/unlock input based on whether a doc is selected
+      updateAskGate();
     }
 
     function formatSize(b) {
@@ -955,6 +1471,17 @@
       const question = input.value.trim();
       if (!question || isAsking) return;
 
+      // Phase 3.4 — short query warning. The backend already handles this
+      // (returns a polite "too short" response), but warning client-side
+      // saves a round-trip and makes the failure mode obvious to the user.
+      // We count "meaningful" words (length > 1) to allow short queries
+      // like "DSA III?" while rejecting "what?" or "ok".
+      const meaningful = question.split(/\s+/).filter(w => w.length > 1);
+      if (meaningful.length < 3) {
+        showToast('⚠️ Try a more specific question — at least 3 meaningful words', 'error');
+        return;
+      }
+
       const docId = document.getElementById('doc-filter').value || null;
 
       // Hide welcome
@@ -988,6 +1515,8 @@
       try {
         const body = { question, session_id: sessionId };
         if (docId) body.document_id = docId;
+        // Phase 3.1 — only send the flag when the user has explicitly opted in
+        if (debugMode) body.debug_mode = true;
 
         const r = await fetch(`${API}/api/ask`, {
           method: 'POST',
@@ -1015,7 +1544,38 @@
     }
 
     function renderAnswer(chatArea, data) {
-      const conf = Math.round(data.confidence * 100);
+      // Build the Retrieval Info panel HTML once — shown on both
+      // refusal AND answer paths so users can always inspect what happened.
+      // Pass routing in so the panel includes "Router chose / reason" rows.
+      const traceHtml = renderTraceHtml(data.trace, data.routing);
+      // Phase 3.1 — chunk trace only present when user enabled debug mode
+      const chunkTraceHtml = renderChunkTraceHtml(data.chunk_trace);
+
+      // ── REFUSAL BANNER (Phase 1.3) ──
+      // When has_answer is false, show a distinct red "Out of scope" card
+      // instead of treating it like a normal answer. This makes it impossible
+      // to confuse a refusal with a genuine answer.
+      // Phase 2.2: explicitly show "Confidence: 0%" on refusals (spec).
+      // Phase 2.3: trace panel renders below the refusal too — useful to see
+      // why retrieval failed (e.g. top_score=0.04, chunks_retrieved=0).
+      if (!data.has_answer) {
+        appendMsg(chatArea, `
+        <div class="msg msg-answer">
+          <div class="refusal-card">
+            <div class="refusal-icon">❌</div>
+            <div class="refusal-body">
+              <div class="refusal-title">Out of Scope — Not found in document</div>
+              <div class="refusal-msg">${escHtml(data.answer)}</div>
+              <div class="refusal-confidence">Confidence: 0%</div>
+            </div>
+          </div>
+          ${traceHtml}
+          ${chunkTraceHtml}
+        </div>`);
+        return;
+      }
+      // Convert backend float (0.0–1.0) → display integer (0–100)
+      const conf = Math.round((data.confidence || 0) * 100);
       let confLabel = 'Low';
       let confColor = 'var(--danger)';
       if (conf >= 70) {
@@ -1080,6 +1640,8 @@
             </div>
           </div>
           ${citHtml}
+          ${traceHtml}
+          ${chunkTraceHtml}
         </div>
       </div>
     `);
@@ -1094,6 +1656,131 @@
     }
 
     function toggleCitations(el) {
+      el.classList.toggle('open');
+      el.nextElementSibling.classList.toggle('open');
+    }
+
+    // ── Retrieval Info Panel (Phase 2.3) ──
+    // Renders the observability trace returned by the backend in `data.trace`.
+    // Shows: which tool ran, top chunk score, chunks retrieved, agent iterations.
+    // Designed to be informative without being noisy — collapsed by default.
+    function renderTraceHtml(trace, routing) {
+      if (!trace) return '';
+
+      // Format top_score as a percentage for readability (the raw 0–1 float
+      // is meaningful only to engineers).
+      const topScorePct = Math.round((trace.top_score || 0) * 100);
+
+      // tools_tried can be empty (catastrophic-failure fallback) — show "—"
+      const triedDisplay = (trace.tools_tried && trace.tools_tried.length)
+        ? trace.tools_tried.map(t => `<code>${escHtml(t)}</code>`).join(' → ')
+        : '—';
+
+      const fallbackClass = trace.fallback_used ? 'trace-val fallback-yes' : 'trace-val';
+      const fallbackText  = trace.fallback_used ? 'Yes (agent loop exhausted)' : 'No';
+
+      // Phase 3.2 — show router reasoning if present
+      const routingHtml = routing ? `
+        <div class="trace-key">Router chose:</div>
+        <div class="trace-val"><code>${escHtml(routing.tool_chosen)}</code></div>
+        <div class="trace-key">Router reason:</div>
+        <div class="trace-val" style="font-style:italic; color:var(--muted)">"${escHtml(routing.reason)}"</div>
+      ` : '';
+
+      return `
+        <div class="trace-wrap">
+          <div class="trace-toggle" onclick="toggleTrace(this)">
+            <span class="arrow">▶</span>
+            🔍 Retrieval Info
+          </div>
+          <div class="trace-panel">
+            <div class="trace-grid">
+              ${routingHtml}
+              <div class="trace-key">Tool used:</div>
+              <div class="trace-val"><code>${escHtml(trace.tool_used || 'none')}</code></div>
+
+              <div class="trace-key">Tools tried:</div>
+              <div class="trace-val">${triedDisplay}</div>
+
+              <div class="trace-key">Top chunk score:</div>
+              <div class="trace-val">${topScorePct}% <span style="color:var(--muted)">(${(trace.top_score || 0).toFixed(4)})</span></div>
+
+              <div class="trace-key">Chunks retrieved:</div>
+              <div class="trace-val">${trace.chunks_retrieved}</div>
+
+              <div class="trace-key">Agent iterations:</div>
+              <div class="trace-val">${trace.iterations}</div>
+
+              <div class="trace-key">Fallback used:</div>
+              <div class="${fallbackClass}">${fallbackText}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleTrace(el) {
+      el.classList.toggle('open');
+      el.nextElementSibling.classList.toggle('open');
+    }
+
+    // ── Chunk Trace Table (Phase 3.1 — Debug Mode) ──
+    // Renders the full per-chunk score breakdown when debug_mode=true.
+    // Selected chunks (those that fit in the LLM's context budget) are
+    // highlighted; dropped chunks are dimmed. Helps the user see exactly
+    // what made it into the prompt and what didn't.
+    function renderChunkTraceHtml(chunkTrace) {
+      if (!chunkTrace || !chunkTrace.length) return '';
+
+      // Helper: format a score cell — "—" when null/undefined, 4-decimal otherwise
+      const fmt = v => (v === null || v === undefined)
+        ? '<span class="empty">—</span>'
+        : Number(v).toFixed(4);
+
+      const rows = chunkTrace.map(c => {
+        const cls = c.selected ? 'chunk-selected' : 'chunk-dropped';
+        return `
+          <tr class="${cls}">
+            <td>${c.rank}</td>
+            <td>${c.selected ? '✅' : '⚪'}</td>
+            <td>p${c.page ?? '?'}</td>
+            <td class="score-cell">${fmt(c.faiss_score)}</td>
+            <td class="score-cell">${fmt(c.bm25_score)}</td>
+            <td class="score-cell">${fmt(c.hybrid_score)}</td>
+            <td class="score-cell">${fmt(c.reranker_score)}</td>
+            <td class="preview-cell">${escHtml(c.text_preview || '')}</td>
+          </tr>
+        `;
+      }).join('');
+
+      return `
+        <div class="chunk-trace-wrap">
+          <div class="chunk-trace-toggle" onclick="toggleChunkTrace(this)">
+            <span class="arrow">▶</span>
+            🧪 Debug: Per-chunk Scores (${chunkTrace.length})
+          </div>
+          <div class="chunk-trace-panel">
+            <table class="chunk-trace-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Used</th>
+                  <th>Page</th>
+                  <th>FAISS</th>
+                  <th>BM25</th>
+                  <th>Hybrid</th>
+                  <th>Reranker</th>
+                  <th>Preview</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleChunkTrace(el) {
       el.classList.toggle('open');
       el.nextElementSibling.classList.toggle('open');
     }
@@ -1148,6 +1835,239 @@
     }
     // Initialize on page load (var declared here so askQuestion() can access it)
     var sessionId = getOrCreateSessionId();
+
+    // ── Google Drive ──────────────────────────────────────────────────────────
+
+    // State: whether we've successfully fetched Drive files at least once
+    let driveConnected = false;
+
+    // On page load: if Google redirected back with ?drive_connected=true,
+    // automatically open the Drive panel and fetch files.
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('drive_connected') === 'true') {
+        // Clean the URL without a page reload
+        history.replaceState({}, '', window.location.pathname);
+        showToast('✅ Google Drive connected!', 'success');
+        openDrivePanel();
+      }
+    });
+
+    // Called when user clicks the "Browse Google Drive" button.
+    // If we've already loaded files, just toggle the panel.
+    // If not connected at all, kick off the OAuth flow.
+    async function handleDriveClick() {
+      if (driveConnected) {
+        const panel = document.getElementById('drive-panel');
+        if (panel.style.display === 'none') {
+          openDrivePanel();
+        } else {
+          closeDrivePanel();
+        }
+        return;
+      }
+      // Try to load files first — if tokens exist already (from a past session)
+      // this will work without redirecting to Google.
+      try {
+        const r = await fetch(`${API}/api/drive/files`);
+        if (r.ok) {
+          // Already authorised — show panel directly
+          openDrivePanel();
+          return;
+        }
+      } catch (e) { /* network error, fall through */ }
+      // Not connected yet — open OAuth flow in current tab
+      window.location.href = '/auth/google';
+    }
+
+    // Open panel + fetch Drive file list
+    async function openDrivePanel() {
+      const panel = document.getElementById('drive-panel');
+      panel.style.display = 'block';
+      await loadDriveFiles();
+    }
+
+    function closeDrivePanel() {
+      document.getElementById('drive-panel').style.display = 'none';
+    }
+
+    // ── Document Summary (Phase 3.3) ──
+    // Calls /api/ask with the same generic summarize query the LLM router
+    // is trained to recognize as a "summarize" intent. The agent will pick
+    // the summarize_document tool, which retrieves broad context and
+    // generates an overview. Displayed in a modal so it doesn't clutter the
+    // chat history with a question the user didn't actually type.
+    async function summarizeDocument() {
+      const docId = document.getElementById('doc-filter').value;
+      if (!docId) {
+        showToast('⚠️ Select a document first', 'error');
+        return;
+      }
+      if (isSummarizing) return;
+
+      const docOption = document.querySelector(`#doc-filter option[value="${docId}"]`);
+      const docName = docOption ? docOption.textContent : 'this document';
+
+      isSummarizing = true;
+      updateAskGate();
+
+      // Open modal in loading state
+      const overlay = document.getElementById('summary-modal-overlay');
+      const body = document.getElementById('summary-modal-body');
+      overlay.classList.add('open');
+      body.classList.add('loading');
+      body.innerHTML = `
+        <div class="dots"><span></span><span></span><span></span></div>
+        Generating summary of <strong>${escHtml(docName)}</strong>…
+      `;
+
+      try {
+        const r = await fetch(`${API}/api/ask`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            // Directive prompt: the previous "Provide a comprehensive summary"
+            // led the LLM to focus on whichever section had the most detail.
+            // This wording forces balanced section-by-section coverage.
+            question: (
+              'Provide a balanced summary of this document covering ALL major sections. ' +
+              'Identify and briefly describe each distinct topic or section in the document. ' +
+              'Each section should get roughly equal coverage — do NOT focus on just one part. ' +
+              'Structure the summary as: a 1-line overview, then short bullet points or paragraphs for each major section.'
+            ),
+            document_id: docId,
+            session_id: sessionId,
+          })
+        });
+        const data = await r.json();
+
+        body.classList.remove('loading');
+        if (!r.ok) {
+          body.innerHTML = `<div style="color:var(--danger)">⚠️ ${escHtml(data.detail || 'Summary failed')}</div>`;
+        } else if (!data.has_answer) {
+          // Fell into refusal path — most likely the doc is too short or empty
+          body.innerHTML = `
+            <div class="summary-doc-label">📄 ${escHtml(docName)}</div>
+            <div style="color:var(--muted); font-style:italic">${escHtml(data.answer)}</div>
+          `;
+        } else {
+          // Render markdown with the same parser used in chat answers
+          body.innerHTML = `
+            <div class="summary-doc-label">📄 ${escHtml(docName)}</div>
+            <div class="markdown-body">${marked.parse(data.answer)}</div>
+          `;
+        }
+      } catch (e) {
+        body.classList.remove('loading');
+        body.innerHTML = `<div style="color:var(--danger)">⚠️ Network error: ${escHtml(e.message)}</div>`;
+      }
+
+      isSummarizing = false;
+      updateAskGate();
+    }
+
+    function closeSummary() {
+      document.getElementById('summary-modal-overlay').classList.remove('open');
+    }
+
+    // Click-outside-to-close for the modal overlay
+    function closeSummaryIfOverlay(event) {
+      if (event.target === document.getElementById('summary-modal-overlay')) {
+        closeSummary();
+      }
+    }
+
+    // Fetch Drive file list from backend and render it
+    async function loadDriveFiles() {
+      const listEl = document.getElementById('drive-file-list');
+      listEl.innerHTML = '<div class="drive-loading">Loading your Drive files…</div>';
+
+      try {
+        const r = await fetch(`${API}/api/drive/files`);
+        if (!r.ok) {
+          listEl.innerHTML = '<div class="drive-empty">Could not load Drive files.<br/>Try reconnecting.</div>';
+          return;
+        }
+        const data = await r.json();
+        const files = data.files || [];
+        driveConnected = true;
+
+        if (!files.length) {
+          listEl.innerHTML = '<div class="drive-empty">No PDFs or Docs found in your Drive.</div>';
+          return;
+        }
+
+        listEl.innerHTML = files.map(f => {
+          const icon = f.mimeType === 'application/vnd.google-apps.document' ? '📝' : '📄';
+          const already = f.already_ingested;
+          const actionBtn = already
+            ? `<span class="drive-already">✓ Imported</span>`
+            : `<button class="btn-import" id="import-${f.id}" onclick="importDriveFile('${f.id}','${escHtml(f.name)}')">Import</button>`;
+
+          return `
+          <div class="drive-file-item" id="drive-item-${f.id}">
+            <span style="font-size:16px;flex-shrink:0">${icon}</span>
+            <div class="drive-file-info">
+              <div class="drive-file-name" title="${escHtml(f.name)}">${escHtml(f.name)}</div>
+              <div class="drive-file-meta">${f.mimeType === 'application/vnd.google-apps.document' ? 'Google Doc' : 'PDF'}</div>
+            </div>
+            ${actionBtn}
+          </div>`;
+        }).join('');
+
+      } catch (e) {
+        listEl.innerHTML = '<div class="drive-empty">Network error loading Drive files.</div>';
+      }
+    }
+
+    // Import a single Drive file into DocuMind
+    async function importDriveFile(fileId, fileName) {
+      const btn = document.getElementById(`import-${fileId}`);
+      if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+
+      const statusEl = document.getElementById('upload-status');
+      statusEl.style.display = 'block';
+      statusEl.innerHTML = `⏳ Importing <strong>${fileName}</strong> from Drive…`;
+
+      try {
+        const r = await fetch(`${API}/api/drive/ingest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ drive_file_id: fileId })
+        });
+        const data = await r.json();
+
+        if (!r.ok) {
+          showToast(data.detail || 'Import failed', 'error');
+          if (btn) { btn.disabled = false; btn.textContent = 'Import'; }
+          statusEl.style.display = 'none';
+          return;
+        }
+
+        // Success — update the button to "Imported"
+        const item = document.getElementById(`drive-item-${fileId}`);
+        if (item) {
+          const btnEl = item.querySelector('.btn-import');
+          if (btnEl) btnEl.outerHTML = '<span class="drive-already">✓ Imported</span>';
+        }
+
+        showToast(`✅ "${fileName}" imported from Drive!`, 'success');
+        statusEl.innerHTML = `🔄 Processing <strong>${fileName}</strong>…`;
+
+        // Poll for completion (same as local upload)
+        if (data.document_id) {
+          await pollDocument(data.document_id, fileName, statusEl);
+        } else {
+          await loadDocuments();
+          setTimeout(() => { statusEl.style.display = 'none'; }, 2500);
+        }
+
+      } catch (e) {
+        showToast('Import failed: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Import'; }
+        statusEl.style.display = 'none';
+      }
+    }
 
     // ── New Chat ─────────────────────────────────────────────────────────────
     async function newChat() {

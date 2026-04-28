@@ -102,6 +102,42 @@ async def upload_document(
         )
 
     # ------------------------------------------------------------------
+    # STEP 3b: Empty / scanned PDF precheck (Phase 3.4)
+    # ------------------------------------------------------------------
+    # Some PDFs have no extractable text — they're scanned images, the
+    # text layer is missing, or the file is malformed. Without OCR, our
+    # pipeline can't index them and any /api/ask query will be useless.
+    #
+    # We do a fast precheck here (synchronous, before background processing)
+    # so the user gets an immediate, actionable error toast instead of an
+    # opaque "processing failed" 30 seconds later.
+    try:
+        from app.services.pdf_service import extract_text_from_pdf
+        precheck_pages = extract_text_from_pdf(file_path)
+        total_chars = sum(p.get("char_count", 0) for p in precheck_pages if not p.get("is_empty"))
+
+        if total_chars < 50:
+            # Practically zero text — almost certainly scanned or empty
+            logger.warning(f"Empty/scanned PDF rejected: {file.filename} (only {total_chars} chars extracted)")
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This PDF appears to have no extractable text. "
+                    "It may be a scanned document or contain only images. "
+                    "Try a text-based PDF — DocuMind doesn't currently support OCR."
+                ),
+            )
+    except HTTPException:
+        # Re-raise the 400 we just constructed
+        raise
+    except Exception as e:
+        # Don't fail the upload on a precheck error — let the background job
+        # try its luck. Worst case the user sees the existing "failed" status.
+        logger.warning(f"Empty-PDF precheck error (continuing): {e}")
+
+    # ------------------------------------------------------------------
     # STEP 4: Create DB record (status = "processing")
     # ------------------------------------------------------------------
     try:
