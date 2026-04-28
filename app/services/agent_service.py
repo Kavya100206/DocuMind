@@ -599,9 +599,14 @@ def _build_chunk_trace(
     trace = []
     for i, c in enumerate(sorted_chunks):
         text = c.get("text") or ""
+        # chunk_index doubles as a dedup key elsewhere and may carry a UUID
+        # string for chunks loaded from a rebuilt FAISS index (no original
+        # int index is persisted on the Chunk DB model). The Pydantic
+        # response field is Optional[int], so coerce non-ints to None here.
+        ci = c.get("chunk_index")
         trace.append({
             "rank":           i + 1,
-            "chunk_index":    c.get("chunk_index"),
+            "chunk_index":    ci if isinstance(ci, int) else None,
             "page":           c.get("page_number"),
             "document_name":  c.get("document_name"),
             "text_preview":   (text[:150] + "...") if len(text) > 150 else text,
