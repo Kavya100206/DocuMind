@@ -20,7 +20,7 @@ observability panel and a retrieval trace mode.
 
 ## Live Demo
 
-- Live: https://documind-production-58e5.up.railway.app/ui
+- Live: [https://documind-production-58e5.up.railway.app/ui](https://web-production-6f28c.up.railway.app/ui)
 
 ## The Problem
 
