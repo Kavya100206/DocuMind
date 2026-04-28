@@ -401,9 +401,16 @@ def _qualifier_distance_check(
     if not claim_spans:
         return True
 
-    # Dates anywhere in the answer. We then keep only those within ±100 chars
-    # of a claim phrase — those are the ones the LLM is asserting are grounded.
-    PROXIMITY = 100
+    # Dates anywhere in the answer. We then keep only those within ±20 chars
+    # of a claim phrase — i.e. the date and the grounding claim are in the
+    # same clause. A 100-char window crossed sentence boundaries and made
+    # the heuristic over-fire on legitimate answers that use "explicitly
+    # stated" in a follow-up sentence (e.g. V1: "...April 1, 2025.\n\nThis
+    # information is explicitly stated..."). Tighter proximity means we
+    # only flag in-line assertions like I3's "December 1, 2022, as
+    # explicitly stated in the report" — which is the pattern we actually
+    # care about.
+    PROXIMITY = 20
     suspect_dates: List[str] = []
     for m in _FACTOID_DATE_RE.finditer(answer):
         d_start, d_end = m.start(), m.end()
