@@ -162,7 +162,16 @@ def process_document(document_id: str, file_path: str, db: Session) -> Document:
         # STEP 5: Embed each chunk into a vector
         # ------------------------------------------------------------------
         # embed_chunks() calls the local sentence-transformers model
-        # and adds an "embedding" key to every chunk dict
+        # and adds an "embedding" key to every chunk dict.
+        #
+        # IMPORTANT: Release the DB connection before this CPU-bound step.
+        # On free-tier Postgres (Neon), idle SSL connections are killed after
+        # ~5 minutes. Embedding 3000+ chunks on CPU takes longer than that,
+        # so holding the session here causes "SSL connection has been closed
+        # unexpectedly" on the next commit. db.close() returns the connection
+        # to the pool; the next query will lazy-checkout a fresh, pre-pinged
+        # one (pool_pre_ping=True is set in postgres.py).
+        db.close()
         embedded = embed_chunks(small_chunks)
 
         # ------------------------------------------------------------------
@@ -323,6 +332,9 @@ def reprocess_document(document_id: str, db: Session) -> Document:
         # ------------------------------------------------------------------
         # STEP 5: Re-embed
         # ------------------------------------------------------------------
+        # Release the DB connection before the CPU-bound embed step (see
+        # process_document for the full reasoning). Same Neon pooler issue.
+        db.close()
         embedded = embed_chunks(small_chunks)
 
         # ------------------------------------------------------------------

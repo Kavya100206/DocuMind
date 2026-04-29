@@ -35,7 +35,7 @@ if _PROJECT_ROOT not in sys.path:
 
 
 BASE = "http://localhost:8000"
-DOC_ID = "b1dc4f2e-060f-47da-8411-039fd0fd4535"
+DOC_ID = "194a98b3-cf09-4fde-8d6a-34cb29e97278"
 
 CONF_ANALYSIS = 0.4
 ASK_TIMEOUT = 90

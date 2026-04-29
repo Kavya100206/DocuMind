@@ -34,7 +34,7 @@ BASE = "http://localhost:8000"
 
 # Sample document — see test_cases.md §1
 # If you re-ingest, list documents via GET /api/documents/ and update this.
-DOC_ID = "b1dc4f2e-060f-47da-8411-039fd0fd4535"
+DOC_ID = "194a98b3-cf09-4fde-8d6a-34cb29e97278"
 
 # Confidence floors per test_cases.md §4
 CONF_FACTUAL  = 0.5   # V1 / V2 / V3 — direct extraction
@@ -90,11 +90,13 @@ def ask(question: str, document_id: str = DOC_ID, session_id: str | None = None)
     Hit POST /api/ask with the given question. Returns the requests.Response
     object. Caller checks status_code and parses .json() as needed.
 
-    Sleeps 6 s before every call to stay under Groq's free-tier 6000 tok/min
-    limit. Without this the SDK auto-retries 429s with multi-second backoffs,
-    and the suite balloons from ~70 s to 5+ min.
+    Sleeps 12 s before every call to stay under Groq's free-tier 6000 tok/min
+    limit. We previously used 6s, but heavy queries like V5 (summary, ~3k token
+    prompt) and H1 (Hindi, ~3k token prompt) drain the bucket faster than 6s
+    can refill, leading to 429s + hedged refusals. 12s matches test_v5_v6.py
+    and gives reliable headroom across the full 11-query suite.
     """
-    _time.sleep(6)
+    _time.sleep(12)
     body = {"question": question, "document_id": document_id}
     if session_id:
         body["session_id"] = session_id
