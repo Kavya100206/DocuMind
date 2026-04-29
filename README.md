@@ -238,6 +238,8 @@ DATABASE_URL=postgresql://user:password@hostname/dbname
 
 # AI and Generation
 GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=llama-3.1-8b-instant
+
 
 # Google Drive integration (optional — only needed if you use /auth/google)
 GOOGLE_CLIENT_ID=your-google-client-id
