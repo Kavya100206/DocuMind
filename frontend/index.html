@@ -1926,15 +1926,16 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            // Directive prompt: the previous "Provide a comprehensive summary"
-            // led the LLM to focus on whichever section had the most detail.
-            // This wording forces balanced section-by-section coverage.
-            question: (
-              'Provide a balanced summary of this document covering ALL major sections. ' +
-              'Identify and briefly describe each distinct topic or section in the document. ' +
-              'Each section should get roughly equal coverage — do NOT focus on just one part. ' +
-              'Structure the summary as: a 1-line overview, then short bullet points or paragraphs for each major section.'
-            ),
+            // Generic phrasing so the button works for ANY uploaded PDF
+            // (research paper, textbook, annual report, etc.) — not tied to
+            // a specific document type. Both "summarize" and "main themes"
+            // match the deterministic pre-route in agent_service.py
+            // (_SUMMARY_INTENT_RE), which routes to summarize_document and
+            // skips the router LLM call. The earlier verbose "balanced
+            // section-by-section coverage" wording was too prescriptive —
+            // the LLM hedged ("I don't have enough information to cover all
+            // sections..."), tripping the refusal detector.
+            question: 'Summarize the main themes of this document.',
             document_id: docId,
             session_id: sessionId,
           })
