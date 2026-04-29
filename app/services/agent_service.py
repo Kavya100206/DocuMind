@@ -1092,9 +1092,17 @@ def generation_node(state: AgentState) -> Dict[str, Any]:
     # Even if best_score clears the threshold, retrieval may have surfaced
     # chunks that MENTION the query keywords without being ABOUT them.
     # Require at least one query bigram to appear repeatedly in the chunks.
-    if not _has_topical_match(query, unique_chunks):
-        logger.info("[Generation] Hard refusal: query bigrams not topical in retrieved chunks (mentioned-in-passing)")
-        return _refusal_payload(lang)
+    #
+    # SKIP for summarize_document: that tool intentionally returns a random
+    # sample of chunks across the whole doc (not query-targeted), so the
+    # bigrams from a meta-query like "summarize the main themes" will never
+    # appear repeatedly in those generic chunks. Running the check here
+    # guarantees a false-positive refusal on legitimate summary requests.
+    tools_used = state.get("tool_calls_made") or []
+    if "summarize_document" not in tools_used:
+        if not _has_topical_match(query, unique_chunks):
+            logger.info("[Generation] Hard refusal: query bigrams not topical in retrieved chunks (mentioned-in-passing)")
+            return _refusal_payload(lang)
 
     logger.info(f"[Generation] Generating answer from {len(unique_chunks)} unique chunks")
 
@@ -1188,9 +1196,12 @@ def fallback_node(state: AgentState, db: Session) -> Dict[str, Any]:
         return {**_refusal_payload(lang), "fallback_used": True, "retrieved_chunks": chunks}
 
     # ── Hard Refusal #2.5: Topical relevance check (Phase 4 hardening) ──
-    if not _has_topical_match(query, chunks):
-        logger.info("[Fallback] Hard refusal: query bigrams not topical in retrieved chunks (mentioned-in-passing)")
-        return {**_refusal_payload(lang), "fallback_used": True, "retrieved_chunks": chunks}
+    # Skip for summarize_document — see generation_node for the rationale.
+    fallback_tools_used = state.get("tool_calls_made") or []
+    if "summarize_document" not in fallback_tools_used:
+        if not _has_topical_match(query, chunks):
+            logger.info("[Fallback] Hard refusal: query bigrams not topical in retrieved chunks (mentioned-in-passing)")
+            return {**_refusal_payload(lang), "fallback_used": True, "retrieved_chunks": chunks}
 
     result = llm_service.generate_answer(
         question=query,
