@@ -46,42 +46,26 @@ question but the specific fact is not present.
 
 ## Features
 
-### Retrieval & Grounding
-- **Hybrid Retrieval Pipeline** — FAISS semantic vector search + BM25 lexical ranking, weighted 65/35 and reranked with a cross-encoder on the top candidates.
-- **Section-Aware Chunking** — Detects document structure and preserves section headers and semantic blocks instead of splitting on arbitrary character counts.
-- **Lexical Boosting** — Re-ranking multipliers for exact token matches, roman numerals, and section header targets.
-- **Two-Stage Reranking** — Cross-encoder relevance scoring applied only to the top 10 merged candidates to balance accuracy and latency.
+### Refusal & Safety (the differentiator)
+- **Hard Refusal Contract** — when grounding fails, the API returns `has_answer=false`, `confidence=0.0`, `citations=[]` with a localized refusal message. No soft fallbacks, no hedged guesses.
+- **Qualifier-Distance Grounding Gate** — catches the realistic hallucination trap where chunk vocabulary matches the question but the specific fact doesn't (e.g. doc mentions e₹-Retail and rural India separately, but no rural-rollout date exists).
+- **Strict PDF Isolation** — `/api/ask` rejects missing/empty `document_id` with 400 before any retrieval runs.
+- **Topical relevance gate + hedging detection** — additional layered checks that convert weak responses into structured refusals.
 
-### Agentic Reasoning
-- **LangGraph Agentic Loop** — A stateful directed graph where the LLM picks a retrieval tool (semantic search, summarize, lexical search), inspects the chunks, and decides whether to answer, retry with a different tool, or fall back to the legacy pipeline.
-- **Conversational Memory & Query Rewriting** — Session history is fed to an LLM to resolve pronouns and implicit references into standalone, search-optimized queries.
-- **Document Summary Tool** — Dedicated `summarize_document` tool the agent invokes for whole-document themes, separate from chunk-level retrieval.
-- **Confidence Scoring** — Quantitative reliability score derived from retrieval-evidence strength, keyword agreement, and hedging penalties.
-- **Automated Citations** — Every answer carries explicit source references with page numbers.
+### Retrieval & Reasoning
+- **Hybrid Retrieval** — FAISS (65% semantic) + BM25 (35% lexical), reranked by a cross-encoder on the top 10. Lexical boosting for exact tokens, roman numerals, and section headers.
+- **Section-Aware Chunking** — preserves document structure (section headers, semantic blocks) instead of splitting on character count.
+- **LangGraph Agent Loop** — stateful directed graph; an LLM picks the retrieval tool (`vector_search` / `keyword_search` / `summarize_document`) and a downstream evaluator decides whether to answer, retry, or refuse.
+- **Conversational Memory + Query Rewriting** — session history feeds query rewriting to resolve pronouns and implicit references before retrieval.
 
-### Refusal & Safety
-- **Hard Refusal Logic** — Strict refusal contract: when grounding fails, the API returns `has_answer=false`, `confidence=0.0`, `citations=[]`, and a localized refusal message — no soft fallbacks, no hedged guesses.
-- **Strict PDF Isolation** — Every `/api/ask` call requires a valid `document_id`; missing or empty IDs are rejected at the controller layer with a 400 before any retrieval runs.
-- **Qualifier-Distance Grounding Gate** — Catches I3-style hallucination traps where the answer claims a date/number is "explicitly stated" but the question's qualifier (e.g. "rural") doesn't cluster with that date in the chunks. Triggers a hard refusal instead of a fabricated answer.
-- **Topical Relevance Gate** — Rejects queries whose vocabulary shares no meaningful overlap with the chunks (e.g. "Who is Albert Einstein?" against an RBI annual report).
-- **Hedging Detection** — Flags LLM responses that include hedge phrases ("the document does not specify…") and converts them into structured refusals.
+### Multilingual & Integrations
+- **English + Hindi** — language detection via `langdetect`; the test suite asserts Devanagari-script responses to catch silent English fallbacks.
+- **Google Drive Ingestion** — OAuth2 sync; Drive uploads share the same chunking/embedding pipeline as manual uploads. Webhook push notifications supported.
 
-### Multilingual
-- **English + Hindi** — Language detection via `langdetect`; refusal messages are localized so a Hindi query that fails grounding receives a Hindi refusal rather than an English fallback.
-- **Devanagari Verification** — The test suite asserts response text actually contains Devanagari characters, preventing silent English fallbacks from passing.
-
-### Google Drive Integration
-- **OAuth2 Drive Sync** — Users connect their Google account and ingest PDFs directly from Drive, no manual download required.
-- **Webhook Push Notifications** — Drive change notifications can trigger re-ingestion of updated files.
-- **Same Pipeline** — Drive ingestion and manual upload share `document_service.process_document()` — one chunking/embedding/indexing path, two entry points.
-
-### User Interface
-- **Dynamic Dashboard** — Vanilla JavaScript SPA with real-time async polling for upload and processing state.
-- **Refusal UI** — Distinct visual treatment for refusal responses so users can never confuse a refusal with a grounded answer.
-- **Document Summary Button** — One-click whole-document summarization.
-- **Retrieval Trace Mode** — Toggle that reveals the retrieved chunks, hybrid scores, and reranker output for the most recent query — useful for debugging and demos.
-- **Observability Panel** — Live view of agent tool selection, refusal-gate decisions, and confidence-score components.
-- **Confidence Bar & Citation Accordions** — At-a-glance answer validation with expandable source references.
+### UI & Observability
+- **Refusal UI + Confidence Bar + Citation Accordions** — distinct visual treatment for refusals so a refusal can never be confused with a grounded answer.
+- **Retrieval Trace Mode** — toggle that reveals retrieved chunks with full FAISS/BM25/hybrid/reranker score breakdown.
+- **Observability Panel** — live view of agent tool selection, refusal-gate decisions, and confidence-score components.
 
 ---
 
@@ -134,7 +118,7 @@ Refusal Gate     = Topical Relevance → Hedging Detection → Qualifier-Distanc
 ### Key Architectural Decisions
 
 - **LangGraph Agentic Loop** — Instead of a fixed pipeline, an LLM router picks the retrieval tool per query and a downstream evaluation node decides whether the chunks are good enough to answer or whether to retry / refuse. This keeps query-shape dependent logic (summary vs. factual vs. follow-up) out of hardcoded heuristics.
-- **Hard Refusal Contract** — The API's `has_answer / confidence / citations` triple is a load-bearing contract, not a UI hint. When any grounding gate trips, the response is structurally a refusal: `has_answer=false`, `confidence=0.0`, `citations=[]`, refusal message localized to the user's language. This is what prevents the system from fabricating answers when chunks are weak.
+- **Hard Refusal Contract** — When any grounding gate trips, the response is structurally a refusal: `has_answer=false`, `confidence=0.0`, `citations=[]`, refusal message localized to the user's language. This is what prevents the system from fabricating answers when chunks are weak. See [docs/TECHNICAL.md §2.A](docs/TECHNICAL.md#a-hard-refusal-contract--the-load-bearing-decision) for the full rationale.
 - **Qualifier-Distance Grounding** — The most realistic hallucination failure isn't off-topic queries; it's queries whose vocabulary appears in the chunks but whose specific fact does not (the I3 "rural rollout date" trap). A heuristic check fires when the answer asserts strong grounding ("explicitly stated", "according to the report") and verifies that ≥66% of question qualifiers cluster within ~100 chars of the cited date in the actual chunks. Failure → hard refusal.
 - **Dual Retrieval Execution** — Searches run against both the user's raw query and the rewritten standalone query; results are merged for maximum coverage.
 - **Weighted Hybridization** — Vector and lexical scores are normalized to a consistent scale and merged 65% semantic / 35% lexical.
