@@ -79,8 +79,12 @@ def process_document(document_id: str, file_path: str, db: Session) -> Document:
     if not document:
         raise ValueError(f"Document {document_id} not found in database")
 
+    # Save filename as a plain string so the error handler can log it even
+    # if `document` becomes detached after db.close() during the embed step.
+    document_filename = document.filename
+
     try:
-        logger.info(f"Processing document: {document.filename}")
+        logger.info(f"Processing document: {document_filename}")
 
         # ------------------------------------------------------------------
         # STEP 1: Get page count and update the Document record
@@ -171,8 +175,13 @@ def process_document(document_id: str, file_path: str, db: Session) -> Document:
         # unexpectedly" on the next commit. db.close() returns the connection
         # to the pool; the next query will lazy-checkout a fresh, pre-pinged
         # one (pool_pre_ping=True is set in postgres.py).
+        #
+        # Side effect: closing the session detaches the `document` ORM
+        # instance loaded above. We re-fetch it after embedding so STEP 7
+        # (status update + commit + refresh) operates on an attached row.
         db.close()
         embedded = embed_chunks(small_chunks)
+        document = db.query(Document).filter(Document.id == document_id).first()
 
         # ------------------------------------------------------------------
         # STEP 5b: Persist embeddings to database
@@ -211,7 +220,7 @@ def process_document(document_id: str, file_path: str, db: Session) -> Document:
         db.commit()
         db.refresh(document)
 
-        logger.info(f"Document '{document.filename}' processed successfully")
+        logger.info(f"Document '{document_filename}' processed successfully")
         return document
 
     except Exception as e:
@@ -219,11 +228,19 @@ def process_document(document_id: str, file_path: str, db: Session) -> Document:
         # ERROR HANDLING: Mark document as failed
         # ------------------------------------------------------------------
         # Even if processing fails, we keep the Document record
-        # The user can see it failed and retry or re-upload
-        logger.error(f"Processing failed for '{document.filename}': {e}")
+        # The user can see it failed and retry or re-upload.
+        # Use the saved filename string — the ORM instance may be detached
+        # if the failure happened after db.close() during embedding.
+        logger.error(f"Processing failed for '{document_filename}': {e}")
 
-        document.status = "failed"
-        db.commit()
+        # Re-fetch the document on a fresh session in case it's detached.
+        try:
+            failed_doc = db.query(Document).filter(Document.id == document_id).first()
+            if failed_doc:
+                failed_doc.status = "failed"
+                db.commit()
+        except Exception as inner:
+            logger.error(f"Failed to mark document as failed: {inner}")
 
         raise RuntimeError(f"Document processing failed: {str(e)}")
 
@@ -334,8 +351,10 @@ def reprocess_document(document_id: str, db: Session) -> Document:
         # ------------------------------------------------------------------
         # Release the DB connection before the CPU-bound embed step (see
         # process_document for the full reasoning). Same Neon pooler issue.
+        # Closing the session detaches `document` — re-fetch it after.
         db.close()
         embedded = embed_chunks(small_chunks)
+        document = db.query(Document).filter(Document.id == document_id).first()
 
         # ------------------------------------------------------------------
         # STEP 5b: Persist embeddings to database
@@ -392,6 +411,11 @@ def reprocess_document(document_id: str, db: Session) -> Document:
 
     except Exception as e:
         logger.error(f"Re-processing failed: {e}")
-        document.status = "failed"
-        db.commit()
+        try:
+            failed_doc = db.query(Document).filter(Document.id == document_id).first()
+            if failed_doc:
+                failed_doc.status = "failed"
+                db.commit()
+        except Exception as inner:
+            logger.error(f"Failed to mark document as failed: {inner}")
         raise RuntimeError(f"Reprocess failed: {str(e)}")
