@@ -20,7 +20,7 @@ observability panel and a retrieval trace mode.
 
 ## Live Demo
 
-- Live: https://web-production-6f28c.up.railway.app/ui
+- Live: web-production-44b3a.up.railway.app/ui
 
 ## The Problem
 
