@@ -44,12 +44,14 @@ question but the specific fact is not present.
 
 ---
 
-graph TD
+## Architecture
 
+```mermaid
+graph TD
     User([User]) --> UI[Web Interface]
     UI --> API[FastAPI Backend]
 
-    API --> DOC[(PostgreSQL)]
+    API --> DB[(PostgreSQL)]
     API --> Agent{LangGraph Agent}
 
     Agent --> Detect[Language Detection]
@@ -68,21 +70,15 @@ graph TD
 
     CrossEncoder --> Safety{Grounding Gate}
 
-    Safety -->|Topical Check| Safety
-    Safety -->|Hedging Check| Safety
-    Safety -->|Qualifier Distance| Safety
-
     Safety -->|Grounded| Generate[Generate Answer]
     Safety -->|Not Grounded| Reject[Structured Refusal]
 
-    Generate --> Output[Answer + Citations + Confidence]
+    Generate --> Output[Answer + Citations]
     Reject --> Refuse[Localized Refusal]
 
     Output --> UI
     Refuse --> UI
-
-    Drive[Google Drive API] --> API
-    Memory[(Conversation Memory)] -.-> Rewrite
+```
 
 ## Features
 
@@ -127,33 +123,7 @@ graph TD
 
 ---
 
-## Architecture
 
-```
-User Query
-    │
-    ▼
-[ Language Detect ] ── EN / HI
-    │
-    ▼
-[ Query Rewriter ] ── pronoun / context resolution from session memory
-    │
-    ▼
-[ LangGraph Agent Loop ]
-    │
-    ├─▶ router_node ── LLM picks a tool (semantic / lexical / summarize)
-    │
-    ├─▶ tool_node ── runs hybrid retrieval + cross-encoder rerank
-    │
-    └─▶ evaluate_node ── confidence + grounding gates
-            │
-            ├── pass → generate answer + citations
-            │
-            └── fail → strict refusal (localized)
-
-Hybrid Retrieval = FAISS (65%) ⊕ BM25 (35%)  →  Cross-Encoder Top-K
-Refusal Gate     = Topical Relevance → Hedging Detection → Qualifier-Distance
-```
 
 ### Key Architectural Decisions
 
