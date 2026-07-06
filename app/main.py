@@ -80,6 +80,43 @@ app.include_router(drive_auth_router)   # /auth/google, /auth/google/callback
 app.include_router(drive_router)        # /api/drive/files, /ingest, /webhook
 
 # ---------------------------------------------------------------------------
+# PHASE 3 — MCP SERVER MOUNT (SSE Transport)
+# ---------------------------------------------------------------------------
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
+class MCPAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Lightweight Bearer Token check for the MCP endpoints.
+    FastAPI dependencies (Depends) do not apply to mounted ASGI apps, 
+    so we must use a Starlette middleware directly on the mcp_app.
+    """
+    async def dispatch(self, request: Request, call_next):
+        # We read from os.environ to keep it flexible without editing settings.py
+        expected_token = os.environ.get("MCP_TOKEN", "default-dev-token")
+        
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or auth_header != f"Bearer {expected_token}":
+            return JSONResponse(
+                {"detail": "Unauthorized MCP access"}, 
+                status_code=401
+            )
+            
+        return await call_next(request)
+
+# Import the MCP server instance from Phase 2
+from app.mcp.server import mcp
+
+# Get the Starlette ASGI app from FastMCP. 
+# We DO NOT pass "/mcp" here because FastAPI's app.mount() automatically 
+# handles ASGI root_path injection. Passing it here causes double-prefixing.
+mcp_app = mcp.sse_app()
+mcp_app.add_middleware(MCPAuthMiddleware)
+
+# Mount the fully configured MCP app into the main FastAPI application
+app.mount("/mcp", mcp_app)
+
+# ---------------------------------------------------------------------------
 # GLOBAL EXCEPTION HANDLER
 # ---------------------------------------------------------------------------
 # This ensures that even "hard" crashes (500 errors) return JSON.

@@ -107,6 +107,23 @@ _SUMMARY_INTENT_RE = re.compile(
 # is still well below the typical scores of valid factual queries (0.5+).
 AGENT_CONFIDENCE_THRESHOLD = 0.25
 
+# Strong-confidence bypass threshold for the topical-relevance gate.
+#
+# CURRENTLY DISABLED (set above any realistic best_score so the bypass
+# branch never fires in practice). Reranker scores in this project top out
+# around 1.0–1.05, so 1.5 effectively keeps the topical gate active for
+# every retrieval — the same behavior the system had before the bypass was
+# introduced.
+#
+# History: a 0.5 threshold was tried to reduce false refusals on short
+# paraphrased queries, but it allowed I3-style hallucination traps (queries
+# whose vocabulary is in the doc but whose specific fact isn't) to slip
+# through whenever the LLM phrased its fabrication without a grounding
+# claim phrase. Reverting until we have a more principled signal that
+# distinguishes "high reranker score because topically correct" from
+# "high reranker score because vocabulary coincidentally matched".
+STRONG_TOPICAL_BYPASS = 1.5
+
 # ── Hard refusal contract (Phase 1.2 + 2.1) ──
 # Used by BOTH generation_node and fallback_node so the refusal shape
 # is identical no matter which path ran. The frontend keys off has_answer=False
@@ -1098,8 +1115,24 @@ def generation_node(state: AgentState) -> Dict[str, Any]:
     # bigrams from a meta-query like "summarize the main themes" will never
     # appear repeatedly in those generic chunks. Running the check here
     # guarantees a false-positive refusal on legitimate summary requests.
+    #
+    # SKIP for strongly-confident retrievals: when best_score ≥
+    # STRONG_TOPICAL_BYPASS, the cross-encoder reranker has already
+    # established semantic relevance. The bigram heuristic on short
+    # queries ("what projects has X worked on") produces false refusals
+    # despite a confident reranker. Hallucination protection still holds
+    # via the qualifier-distance gate (downstream) and hedging detector.
     tools_used = state.get("tool_calls_made") or []
-    if "summarize_document" not in tools_used:
+    skip_topical = (
+        "summarize_document" in tools_used
+        or best_score >= STRONG_TOPICAL_BYPASS
+    )
+    if skip_topical and "summarize_document" not in tools_used:
+        logger.info(
+            f"[Generation] Topical gate bypassed (best_score "
+            f"{best_score:.3f} ≥ {STRONG_TOPICAL_BYPASS})"
+        )
+    if not skip_topical:
         if not _has_topical_match(query, unique_chunks):
             logger.info("[Generation] Hard refusal: query bigrams not topical in retrieved chunks (mentioned-in-passing)")
             return _refusal_payload(lang)
@@ -1196,9 +1229,19 @@ def fallback_node(state: AgentState, db: Session) -> Dict[str, Any]:
         return {**_refusal_payload(lang), "fallback_used": True, "retrieved_chunks": chunks}
 
     # ── Hard Refusal #2.5: Topical relevance check (Phase 4 hardening) ──
-    # Skip for summarize_document — see generation_node for the rationale.
+    # Skip for summarize_document or strongly-confident retrievals — see
+    # generation_node for the rationale.
     fallback_tools_used = state.get("tool_calls_made") or []
-    if "summarize_document" not in fallback_tools_used:
+    skip_topical = (
+        "summarize_document" in fallback_tools_used
+        or best_score >= STRONG_TOPICAL_BYPASS
+    )
+    if skip_topical and "summarize_document" not in fallback_tools_used:
+        logger.info(
+            f"[Fallback] Topical gate bypassed (best_score "
+            f"{best_score:.3f} ≥ {STRONG_TOPICAL_BYPASS})"
+        )
+    if not skip_topical:
         if not _has_topical_match(query, chunks):
             logger.info("[Fallback] Hard refusal: query bigrams not topical in retrieved chunks (mentioned-in-passing)")
             return {**_refusal_payload(lang), "fallback_used": True, "retrieved_chunks": chunks}

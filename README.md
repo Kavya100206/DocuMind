@@ -20,7 +20,7 @@ observability panel and a retrieval trace mode.
 
 ## Live Demo
 
-- Live: https://web-production-44b3a.up.railway.app/ui
+- Live: https://web-production-6f28c.up.railway.app/ui
 
 ## The Problem
 
@@ -43,42 +43,6 @@ catches subtle hallucination traps where chunk vocabulary overlaps with the
 question but the specific fact is not present.
 
 ---
-
-## Architecture
-
-```mermaid
-graph TD
-    User([User]) --> UI[Web Interface]
-    UI --> API[FastAPI Backend]
-
-    API --> DB[(PostgreSQL)]
-    API --> Agent{LangGraph Agent}
-
-    Agent --> Detect[Language Detection]
-    Detect --> Rewrite[Query Rewriting]
-
-    Rewrite --> Decision{Choose Retrieval Tool}
-
-    Decision -->|Semantic| FAISS[(FAISS Index)]
-    Decision -->|Keyword| BM25[(BM25 Search)]
-    Decision -->|Summary| Summary[Summarization Tool]
-
-    FAISS --> Merge[Hybrid Retrieval]
-    BM25 --> Merge
-
-    Merge --> CrossEncoder[Cross-Encoder Reranker]
-
-    CrossEncoder --> Safety{Grounding Gate}
-
-    Safety -->|Grounded| Generate[Generate Answer]
-    Safety -->|Not Grounded| Reject[Structured Refusal]
-
-    Generate --> Output[Answer + Citations]
-    Reject --> Refuse[Localized Refusal]
-
-    Output --> UI
-    Refuse --> UI
-```
 
 ## Features
 
@@ -123,7 +87,33 @@ graph TD
 
 ---
 
+## Architecture
 
+```
+User Query
+    │
+    ▼
+[ Language Detect ] ── EN / HI
+    │
+    ▼
+[ Query Rewriter ] ── pronoun / context resolution from session memory
+    │
+    ▼
+[ LangGraph Agent Loop ]
+    │
+    ├─▶ router_node ── LLM picks a tool (semantic / lexical / summarize)
+    │
+    ├─▶ tool_node ── runs hybrid retrieval + cross-encoder rerank
+    │
+    └─▶ evaluate_node ── confidence + grounding gates
+            │
+            ├── pass → generate answer + citations
+            │
+            └── fail → strict refusal (localized)
+
+Hybrid Retrieval = FAISS (65%) ⊕ BM25 (35%)  →  Cross-Encoder Top-K
+Refusal Gate     = Topical Relevance → Hedging Detection → Qualifier-Distance
+```
 
 ### Key Architectural Decisions
 
@@ -201,127 +191,25 @@ lives in [`tests/test_cases.md`](tests/test_cases.md).
 ## Getting Started
 
 ### Prerequisites
-- Python 3.11+
-- PostgreSQL database instance (e.g., NeonDB)
+
+- Python 3.11 or higher
+- PostgreSQL database
 - Groq API Key
-- (Optional) Google Cloud OAuth2 credentials for Drive integration
 
-### 1. Clone the repository
-```bash
-git clone https://github.com/Kavya100206/DocuMind.git
-cd DocuMind
-```
+### Installation
 
-### 2. Setup virtual environment
-```bash
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# macOS/Linux
-source venv/bin/activate
-```
+1. Clone the repository and navigate to the project directory.
+2. Create and activate a Python virtual environment.
+3. Install dependencies: `pip install -r requirements.txt`
+4. Copy `.env.example` to `.env` and configure your database and API keys.
 
-### 3. Install dependencies
-```bash
-pip install -r requirements.txt
-```
+### Running the Server
 
-### 4. Configuration
-```bash
-cp .env.example .env
-# Open .env and populate your variables (see below)
-```
+Start the application using Uvicorn:
+`uvicorn app.main:app --reload --port 8000`
 
-### 5. Start the server
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-Navigate to `http://localhost:8000` to access the interface.
+The REST API and frontend UI are available at `http://localhost:8000`.
 
----
+### MCP Integration
 
-## Environment Variables
-
-```ini
-# Database
-DATABASE_URL=postgresql://user:password@hostname/dbname
-
-# AI and Generation
-GROQ_API_KEY=your-groq-api-key
-GROQ_MODEL=llama-3.1-8b-instant
-
-
-# Google Drive integration (optional — only needed if you use /auth/google)
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
-
-# Internal configuration (optional overrides)
-CHUNK_SIZE=800
-CHUNK_OVERLAP=150
-```
-
----
-
-## Project Structure
-
-```text
-DocuMind/
-├── frontend/
-│   ├── index.html              # Main SPA interface
-│   └── docs/                   # Assets and screenshots
-│
-├── app/
-│   ├── config/                 # Pydantic settings and environment variables
-│   ├── controllers/            # API route endpoints
-│   │   ├── document_controller.py
-│   │   ├── qa_controller.py
-│   │   ├── drive_controller.py
-│   │   └── system_controller.py
-│   ├── database/               # PostgreSQL connection pool and initialization
-│   ├── models/                 # SQLAlchemy schemas (Document, Chunk, DriveFile, DriveToken)
-│   ├── services/               # Core AI and processing logic
-│   │   ├── chunking_service.py
-│   │   ├── embedding_service.py
-│   │   ├── faiss_service.py
-│   │   ├── llm_service.py
-│   │   ├── reranker_service.py
-│   │   ├── retrieval_service.py
-│   │   ├── agent_service.py    # LangGraph agentic loop + grounding gates
-│   │   ├── agent_tools.py      # Retrieval tools the agent can invoke
-│   │   └── drive_service.py    # Google Drive OAuth + ingestion
-│   ├── utils/                  # File validation, logging, language detection
-│   ├── views/                  # Pydantic request/response validation schemas
-│   └── main.py                 # Application entry point and startup events
-│
-├── tests/
-│   ├── test_suite.py           # Full evaluation suite (V1-V6 + I1-I3 + H1-H2)
-│   ├── test_v5_v6.py           # Targeted V5/V6/I3 runner + I3 unit check
-│   ├── phase1_test.py          # Phase 1 isolation tests
-│   └── test_cases.md           # Human-readable test specification
-│
-├── data/                       # Persistent binary storage for FAISS indices
-├── scripts/                    # Development diagnostics and rebuild utilities
-├── uploads/                    # Temporary buffer storage for incoming PDFs
-└── README.md
-```
-
----
-
-## Performance Metrics
-
-- **Average Retrieval Latency:** ~120ms
-- **Answer Generation:** ~1.2s (Groq LLaMA 3.3 70B)
-- **Citation Accuracy:** 92%+
-- **Hallucination Reduction:** 37% reduction relative to naive vector-only implementations
-
----
-
-## Security & Reliability
-
-- **Hard Refusal Logic** — A layered refusal gate (topical relevance → hedging detection → qualifier-distance grounding) intercepts any response that cannot be strictly grounded in the user's selected PDF. When the gate trips, the API returns a structural refusal (`has_answer=false`, `confidence=0.0`, `citations=[]`) with a localized refusal message — no soft fallbacks, no answers drawn from the LLM's pretrained knowledge. This is the system's primary safety contract and is enforced by the test suite.
-- **Strict PDF Isolation** — Every `/api/ask` request must include a valid `document_id`; missing or empty IDs are rejected with a 400 at the controller before any retrieval or LLM call is made.
-- **Qualifier-Distance Grounding** — Catches the realistic hallucination failure mode where chunk vocabulary overlaps with a question's terms but the specific fact does not exist in the document. Refuses when the answer asserts grounding ("explicitly stated", "according to the report") yet the question's distinctive qualifiers do not cluster with the cited fact in the chunks.
-- **Ambiguity Guard** — Queries comprised entirely of unresolved pronouns are intercepted before retrieval, preventing hallucinated logical leaps.
-- **Data Scrubbing** — Uploaded PDFs are purged from local disk after processing to minimize persistent attack surface.
-- **Stateless RAG** — Conversation memory is used only for query rewriting; vector search is executed fresh per call to ensure context fidelity.
+The Model Context Protocol (MCP) server is exposed via SSE at `http://localhost:8000/mcp/sse`. To connect an MCP client (such as Claude Desktop or the MCP Inspector), configure the client to use the SSE transport and provide the Bearer token specified by your `MCP_TOKEN` environment variable.
