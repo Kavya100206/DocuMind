@@ -112,7 +112,7 @@ logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
 
 # ── App imports (safe after stderr handler is installed) ──────────────────
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 from app.config.settings import settings           # needed for GROQ_MODEL
 from app.database.postgres import SessionLocal
