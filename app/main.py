@@ -78,11 +78,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 # Because the client (Inspector) blindly posts to "/messages" instead of "/mcp/messages",
 # we use this middleware on the main FastAPI app to transparently rewrite the path
 # so it correctly routes into the mounted MCP app without breaking anything else.
-class MCPMessageRewriteMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        if request.url.path.rstrip("/") == "/messages":
-            request.scope["path"] = "/mcp/messages"
-        return await call_next(request)
+class MCPMessageRewriteMiddleware:
+    def __init__(self, app):
+        self.app = app
+        
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path", "").rstrip("/") == "/messages":
+            # Create a shallow copy to avoid mutating the original scope directly
+            scope = dict(scope)
+            scope["path"] = "/mcp/messages"
+        await self.app(scope, receive, send)
 
 app.add_middleware(MCPMessageRewriteMiddleware)
 
