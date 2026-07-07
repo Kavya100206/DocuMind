@@ -12,7 +12,7 @@ psycopg2-binary==2.9.9
 alembic==1.13.1
 
 # Pydantic for settings and validation
-pydantic==2.5.3
+pydantic>=2.8.0
 pydantic-settings==2.1.0
 
 # LLM — Groq API
