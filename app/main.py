@@ -108,13 +108,14 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
 from app.mcp.server import mcp
 
 # Get the Starlette ASGI app from FastMCP. 
-# We DO NOT pass "/mcp" here because FastAPI's app.mount() automatically 
-# handles ASGI root_path injection. Passing it here causes double-prefixing.
 mcp_app = mcp.sse_app()
 mcp_app.add_middleware(MCPAuthMiddleware)
 
-# Mount the fully configured MCP app into the main FastAPI application
-app.mount("/mcp", mcp_app)
+# Mount the fully configured MCP app at the root of the FastAPI application.
+# Mounting at a subpath (like /mcp) causes the FastMCP SSE transport to send
+# an incorrect relative path (/messages) to the client, resulting in a 404.
+# By mounting at root, the endpoints become /sse and /messages.
+app.mount("/", mcp_app)
 
 # ---------------------------------------------------------------------------
 # GLOBAL EXCEPTION HANDLER
