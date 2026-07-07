@@ -98,6 +98,13 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
     so we must use a Starlette middleware directly on the mcp_app.
     """
     async def dispatch(self, request: Request, call_next):
+        # Bypassing auth for POST messages because the MCP SDK's SSEClientTransport
+        # historically does not attach custom Authorization headers to the POST fetch call.
+        # The session is secured because the GET /sse connection is authenticated,
+        # and the POST endpoint requires the unguessable UUID session ID.
+        if request.method == "POST" and "messages" in request.url.path:
+            return await call_next(request)
+
         # We read from os.environ to keep it flexible without editing settings.py
         expected_token = os.environ.get("MCP_TOKEN", "default-dev-token")
         
