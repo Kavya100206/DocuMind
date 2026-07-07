@@ -69,21 +69,22 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
-# Include routers from controllers
-app.include_router(health_controller.router)
-app.include_router(document_controller.router)
-app.include_router(search_controller.router)
-app.include_router(qa_controller.router)
-app.include_router(system_controller.router)
-# Phase 1 — Google Drive routers
-app.include_router(drive_auth_router)   # /auth/google, /auth/google/callback
-app.include_router(drive_router)        # /api/drive/files, /ingest, /webhook
-
 # ---------------------------------------------------------------------------
 # PHASE 3 — MCP SERVER MOUNT (SSE Transport)
 # ---------------------------------------------------------------------------
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
+
+# FIX: FastMCP hardcodes the POST endpoint to "/messages" in the SSE response.
+# Because the client (Inspector) blindly posts to "/messages" instead of "/mcp/messages",
+# we use this middleware on the main FastAPI app to transparently rewrite the path
+# so it correctly routes into the mounted MCP app without breaking anything else.
+class MCPMessageRewriteMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.rstrip("/") == "/messages":
+            request.scope["path"] = "/mcp/messages"
+        return await call_next(request)
+
+app.add_middleware(MCPMessageRewriteMiddleware)
 
 class MCPAuthMiddleware(BaseHTTPMiddleware):
     """
@@ -109,13 +110,22 @@ from app.mcp.server import mcp
 
 # Get the Starlette ASGI app from FastMCP. 
 mcp_app = mcp.sse_app()
+# Auth middleware ONLY applies to the mounted mcp_app
 mcp_app.add_middleware(MCPAuthMiddleware)
 
-# Mount the fully configured MCP app at the root of the FastAPI application.
-# Mounting at a subpath (like /mcp) causes the FastMCP SSE transport to send
-# an incorrect relative path (/messages) to the client, resulting in a 404.
-# By mounting at root, the endpoints become /sse and /messages.
-app.mount("/", mcp_app)
+# Mount the fully configured MCP app under /mcp
+app.mount("/mcp", mcp_app)
+
+
+# Include routers from controllers
+app.include_router(health_controller.router)
+app.include_router(document_controller.router)
+app.include_router(search_controller.router)
+app.include_router(qa_controller.router)
+app.include_router(system_controller.router)
+# Phase 1 — Google Drive routers
+app.include_router(drive_auth_router)   # /auth/google, /auth/google/callback
+app.include_router(drive_router)        # /api/drive/files, /ingest, /webhook
 
 # ---------------------------------------------------------------------------
 # GLOBAL EXCEPTION HANDLER
@@ -224,33 +234,6 @@ async def health_check():
     }
 
 
-# Startup event - runs when the application starts
-# @app.on_event("startup")
-# async def startup_event():
-#     """
-#     Runs when the application starts
-    
-#     What goes here?
-#     ---------------
-#     - Database connection initialization
-#     - Loading ML models
-#     - Cache warming
-#     - Any one-time setup tasks
-#     """
-#     from app.database.postgres import init_db, engine
-#     from app.models import document, chunk  # noqa: F401
-
-#     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
-#     logger.info(f"Debug mode: {settings.DEBUG}")
-
-#     try:
-#         logger.info("Initializing database...")
-#         init_db()
-#         with engine.connect() as conn:
-#             logger.info("Database connection successful")
-#     except Exception as e:
-#         logger.error(f"Database connection failed: {e}")
-#         logger.warning("Application will continue, but database features won't work")
 @app.on_event("startup")
 async def startup_event():
     from app.database.postgres import init_db, engine
@@ -296,6 +279,3 @@ async def shutdown_event():
     """
     logger.info(f"Shutting down {settings.APP_NAME}")
     # We'll add cleanup code here later
-
-
-
