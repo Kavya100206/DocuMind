@@ -74,54 +74,56 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 from starlette.middleware.base import BaseHTTPMiddleware
 
-# FIX: FastMCP hardcodes the POST endpoint to "/messages" in the SSE response.
-# Because the client (Inspector) blindly posts to "/messages" instead of "/mcp/messages",
-# we use this middleware on the main FastAPI app to transparently rewrite the path
-# so it correctly routes into the mounted MCP app without breaking anything else.
-class MCPMessageRewriteMiddleware:
-    def __init__(self, app):
-        self.app = app
-        
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope.get("path", "").rstrip("/") == "/messages":
-            # Create a shallow copy to avoid mutating the original scope directly
-            scope = dict(scope)
-            scope["path"] = "/mcp/messages"
-        await self.app(scope, receive, send)
-
-app.add_middleware(MCPMessageRewriteMiddleware)
 
 class MCPAuthMiddleware(BaseHTTPMiddleware):
     """
     Lightweight Bearer Token check for the MCP endpoints.
-    FastAPI dependencies (Depends) do not apply to mounted ASGI apps, 
-    so we must use a Starlette middleware directly on the mcp_app.
+    FastAPI dependencies (Depends) do not apply to mounted ASGI apps,
+    so we use a Starlette middleware directly on the mcp_app.
+
+    Both GET /sse and POST /messages/ require a valid Bearer token.
+    MCP Inspector sends the Authorization header on every request
+    (GET and POST alike) when a token is configured in its settings.
     """
     async def dispatch(self, request: Request, call_next):
-        # Bypassing auth for POST messages because the MCP SDK's SSEClientTransport
-        # historically does not attach custom Authorization headers to the POST fetch call.
-        # The session is secured because the GET /sse connection is authenticated,
-        # and the POST endpoint requires the unguessable UUID session ID.
-        if request.method == "POST" and "messages" in request.url.path:
-            return await call_next(request)
-
-        # We read from os.environ to keep it flexible without editing settings.py
         expected_token = os.environ.get("MCP_TOKEN", "default-dev-token")
-        
         auth_header = request.headers.get("Authorization")
         if not auth_header or auth_header != f"Bearer {expected_token}":
             return JSONResponse(
-                {"detail": "Unauthorized MCP access"}, 
+                {"detail": "Unauthorized MCP access"},
                 status_code=401
             )
-            
         return await call_next(request)
+
 
 # Import the MCP server instance from Phase 2
 from app.mcp.server import mcp
 
-# Get the Starlette ASGI app from FastMCP. 
-mcp_app = mcp.sse_app()
+# ROOT CAUSE FIX — mount_path must be passed to sse_app().
+#
+# When FastMCP receives a GET /mcp/sse request it streams an SSE event that
+# tells the client where to POST subsequent JSON-RPC messages:
+#
+#   data: endpoint=/messages/?session_id=<uuid>          ← WITHOUT mount_path
+#   data: endpoint=/mcp/messages/?session_id=<uuid>      ← WITH mount_path='/mcp'
+#
+# Without the argument, mcp.settings.mount_path stays "/" (default) so
+# _normalize_path("/", "/messages/") → "/messages/".  The Inspector then
+# POSTs to https://<host>/messages/ which does not exist — hence the 404.
+#
+# Passing mount_path='/mcp' makes _normalize_path("/mcp", "/messages/")
+# return "/mcp/messages/" which the Inspector posts to correctly.
+#
+# DNS-REBINDING PROTECTION — must be disabled in production.
+# FastMCP 1.28+ auto-enables DNS-rebinding protection when host="127.0.0.1".
+# In production on Railway the Host header is the public Railway domain, not
+# localhost, so _every_ request (GET and POST) is silently rejected with 400
+# by TransportSecurityMiddleware before our MCPAuthMiddleware ever sees it.
+# Passing an explicit TransportSecuritySettings(enable_dns_rebinding_protection=False)
+# disables this check for our deployed server.
+mcp_app = mcp.sse_app(
+    mount_path="/mcp",
+)
 # Auth middleware ONLY applies to the mounted mcp_app
 mcp_app.add_middleware(MCPAuthMiddleware)
 

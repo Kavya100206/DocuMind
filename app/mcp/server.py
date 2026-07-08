@@ -113,6 +113,7 @@ logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
 
 # ── App imports (safe after stderr handler is installed) ──────────────────
 from fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from app.config.settings import settings           # needed for GROQ_MODEL
 from app.database.postgres import SessionLocal
@@ -144,7 +145,17 @@ logger.info("[MCP] server.py loaded — log file: %s", _log_path)
 # MCP SERVER INSTANCE
 # ---------------------------------------------------------------------------
 # "DocuMind" is the server name MCP clients display in their UI.
-mcp = FastMCP("DocuMind")
+#
+# transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+# FastMCP 1.28+ automatically enables DNS-rebinding protection when host is
+# "127.0.0.1" (the default). In that mode TransportSecurityMiddleware rejects
+# every request whose Host header is not localhost — which is ALL requests in
+# production because Railway sets Host to the public Railway domain.
+# We disable it here so the SSE and message endpoints are reachable in prod.
+mcp = FastMCP(
+    "DocuMind",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 
 # ---------------------------------------------------------------------------
