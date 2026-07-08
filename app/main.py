@@ -72,51 +72,74 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # PHASE 3 — MCP SERVER MOUNT (SSE Transport)
 # ---------------------------------------------------------------------------
-from starlette.middleware.base import BaseHTTPMiddleware
+import json as _json
 
 
-class MCPAuthMiddleware(BaseHTTPMiddleware):
+class MCPAuthMiddleware:
     """
-    Lightweight Bearer Token check for the MCP endpoints.
-    FastAPI dependencies (Depends) do not apply to mounted ASGI apps,
-    so we use a Starlette middleware directly on the mcp_app.
+    Pure ASGI Bearer Token middleware for the MCP sub-app.
 
-    Both GET /sse and POST /messages/ require a valid Bearer token.
-    MCP Inspector sends the Authorization header on every request
-    (GET and POST alike) when a token is configured in its settings.
+    WHY NOT BaseHTTPMiddleware?
+    --------------------------
+    BaseHTTPMiddleware works by awaiting call_next() which internally
+    collects the full response body into memory before returning.
+    SSE (Server-Sent Events) is an infinite stream — it never sends a
+    final body chunk, so BaseHTTPMiddleware's internal receive loop
+    blocks forever, then Starlette raises:
+        AssertionError: Unexpected message: {'type': 'http.response.start', ...}
+
+    A pure ASGI middleware operates at the raw scope/receive/send level.
+    For unauthorized requests it calls send() directly and returns.
+    For authorized requests it calls self.app(scope, receive, send) and
+    returns immediately — the SSE stream flows through unmodified.
     """
-    async def dispatch(self, request: Request, call_next):
-        expected_token = os.environ.get("MCP_TOKEN", "default-dev-token")
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or auth_header != f"Bearer {expected_token}":
-            return JSONResponse(
-                {"detail": "Unauthorized MCP access"},
-                status_code=401
-            )
-        return await call_next(request)
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # Headers in ASGI scope are a list of (name_bytes, value_bytes) tuples.
+            headers = {
+                name.lower(): value
+                for name, value in scope.get("headers", [])
+            }
+            auth = headers.get(b"authorization", b"").decode()
+            expected = f"Bearer {os.environ.get('MCP_TOKEN', 'default-dev-token')}"
+
+            if auth != expected:
+                body = _json.dumps({"detail": "Unauthorized MCP access"}).encode()
+                await send({
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [
+                        [b"content-type", b"application/json"],
+                        [b"content-length", str(len(body)).encode()],
+                    ],
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": body,
+                    "more_body": False,
+                })
+                return
+
+        await self.app(scope, receive, send)
 
 
 # Import the MCP server instance
 from app.mcp.server import mcp
 
-# mcp.server.fastmcp.FastMCP API (bundled in the mcp package, no standalone fastmcp needed).
-#
-# sse_app(mount_path='/mcp'):
-#   mount_path tells the SDK to emit the correct POST endpoint URL in the
-#   SSE handshake event. Without it the Inspector receives endpoint=/messages/
-#   and POSTs to the root domain (404). With it: endpoint=/mcp/messages/ ✓
-#
-# DNS-rebinding protection is already disabled via host='0.0.0.0' on the
-# FastMCP() constructor in server.py — no TransportSecuritySettings import needed.
+# sse_app(mount_path='/mcp') — tells the SDK to emit /mcp/messages/ in the
+# SSE handshake event so the Inspector POSTs to the correct URL.
+# DNS-rebinding protection is disabled via host='0.0.0.0' in server.py.
 mcp_app = mcp.sse_app(mount_path="/mcp")
 
-# Auth middleware ONLY applies to the mounted mcp_app
-mcp_app.add_middleware(MCPAuthMiddleware)
+# Wrap the mcp_app with the pure ASGI auth middleware.
+# Pure ASGI — zero buffering, SSE stream passes through unchanged.
+mcp_app = MCPAuthMiddleware(mcp_app)
 
-# Mount the fully configured MCP app under /mcp.
-# Starlette strips the /mcp prefix before forwarding to mcp_app, so the
-# internal routes /sse and /messages/ resolve to /mcp/sse and /mcp/messages/
-# as seen by the client. No path rewriting is needed.
+# Mount under /mcp on the main FastAPI app.
 app.mount("/mcp", mcp_app)
 
 
