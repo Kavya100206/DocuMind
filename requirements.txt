@@ -46,7 +46,9 @@ langgraph==0.2.28
 langchain-core==0.3.15
 
 # MCP — Model Context Protocol server (Phase 1)
-# FastMCP (the high-level API used in app/mcp/server.py) is stable from 1.0.0.
-# After installing, run: pip freeze | grep mcp   to get the exact version for locking.
-mcp>=1.0.0
-fastmcp
+# mcp>=1.28.0 is required for:
+#   - mcp.server.transport_security module (TransportSecuritySettings)
+#   - sse_app(mount_path=...) parameter support
+# Older mcp releases (1.0–1.27) do NOT have these and will crash at import.
+mcp>=1.28.0
+fastmcp>=2.0.0

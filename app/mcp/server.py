@@ -113,7 +113,14 @@ logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
 
 # ── App imports (safe after stderr handler is installed) ──────────────────
 from fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
+try:
+    from mcp.server.transport_security import TransportSecuritySettings as _TransportSecuritySettings
+    _NO_DNS_REBIND = _TransportSecuritySettings(enable_dns_rebinding_protection=False)
+except ImportError:
+    # mcp < 1.28 — TransportSecuritySettings doesn't exist yet; DNS-rebinding
+    # protection is not present in these versions so nothing to disable.
+    _TransportSecuritySettings = None  # type: ignore[assignment]
+    _NO_DNS_REBIND = None
 
 from app.config.settings import settings           # needed for GROQ_MODEL
 from app.database.postgres import SessionLocal
@@ -154,7 +161,7 @@ logger.info("[MCP] server.py loaded — log file: %s", _log_path)
 # We disable it here so the SSE and message endpoints are reachable in prod.
 mcp = FastMCP(
     "DocuMind",
-    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    **({"transport_security": _NO_DNS_REBIND} if _NO_DNS_REBIND is not None else {}),
 )
 
 
