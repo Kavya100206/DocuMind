@@ -112,7 +112,7 @@ logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
 
 # ── App imports (safe after stderr handler is installed) ──────────────────
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 from app.config.settings import settings           # needed for GROQ_MODEL
 from app.database.postgres import SessionLocal
@@ -143,12 +143,15 @@ logger.info("[MCP] server.py loaded — log file: %s", _log_path)
 # ---------------------------------------------------------------------------
 # MCP SERVER INSTANCE
 # ---------------------------------------------------------------------------
-# "DocuMind" is the server name MCP clients display in their UI.
-#
-# Note: host_origin_protection is disabled at the http_app() call site
-# in app/main.py, NOT here. fastmcp 3.4.3's FastMCP() constructor has
-# no transport_security or host_origin_protection parameter.
-mcp = FastMCP("DocuMind")
+# host="0.0.0.0" is intentional — NOT a security hole here.
+# mcp.server.fastmcp auto-enables DNS-rebinding protection ONLY when
+# host is "127.0.0.1" / "localhost" / "::1". By setting host="0.0.0.0"
+# we skip that auto-enable, so SseServerTransport receives
+# security_settings=None, which the middleware treats as
+# enable_dns_rebinding_protection=False — what we need for Railway where
+# the Host header is the public domain, not localhost.
+# Access control is handled by MCPAuthMiddleware in main.py instead.
+mcp = FastMCP("DocuMind", host="0.0.0.0")
 
 
 # ---------------------------------------------------------------------------

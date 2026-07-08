@@ -99,27 +99,17 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
 # Import the MCP server instance
 from app.mcp.server import mcp
 
-# FASTMCP 3.4.3 — correct API for SSE transport
+# mcp.server.fastmcp.FastMCP API (bundled in the mcp package, no standalone fastmcp needed).
 #
-# fastmcp 3.4.3 (standalone package by Jeremiah Lowin) is a completely
-# different package from mcp.server.fastmcp. Key differences:
+# sse_app(mount_path='/mcp'):
+#   mount_path tells the SDK to emit the correct POST endpoint URL in the
+#   SSE handshake event. Without it the Inspector receives endpoint=/messages/
+#   and POSTs to the root domain (404). With it: endpoint=/mcp/messages/ ✓
 #
-#   • sse_app() does NOT exist — replaced by http_app(transport='sse')
-#   • TransportSecuritySettings is NOT exposed — replaced by host_origin_protection=
-#   • No mount_path parameter — Starlette strips the /mcp prefix automatically
-#     when the sub-app is mounted, so the internal routes /sse and /messages/
-#     are correct relative paths already.
-#
-# host_origin_protection=False:
-#   Disables the Host/Origin header validation guard that fastmcp 3.4.3
-#   enables by default. In production on Railway the Host header is the
-#   public Railway domain (not localhost), which triggers the guard and
-#   silently drops every request with 400. We disable it here and rely
-#   on our own MCPAuthMiddleware for access control.
-mcp_app = mcp.http_app(
-    transport="sse",
-    host_origin_protection=False,
-)
+# DNS-rebinding protection is already disabled via host='0.0.0.0' on the
+# FastMCP() constructor in server.py — no TransportSecuritySettings import needed.
+mcp_app = mcp.sse_app(mount_path="/mcp")
+
 # Auth middleware ONLY applies to the mounted mcp_app
 mcp_app.add_middleware(MCPAuthMiddleware)
 
