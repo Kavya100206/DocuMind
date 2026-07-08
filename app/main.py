@@ -96,38 +96,37 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-# Import the MCP server instance from Phase 2
+# Import the MCP server instance
 from app.mcp.server import mcp
 
-# ROOT CAUSE FIX — mount_path must be passed to sse_app().
+# FASTMCP 3.4.3 — correct API for SSE transport
 #
-# When FastMCP receives a GET /mcp/sse request it streams an SSE event that
-# tells the client where to POST subsequent JSON-RPC messages:
+# fastmcp 3.4.3 (standalone package by Jeremiah Lowin) is a completely
+# different package from mcp.server.fastmcp. Key differences:
 #
-#   data: endpoint=/messages/?session_id=<uuid>          ← WITHOUT mount_path
-#   data: endpoint=/mcp/messages/?session_id=<uuid>      ← WITH mount_path='/mcp'
+#   • sse_app() does NOT exist — replaced by http_app(transport='sse')
+#   • TransportSecuritySettings is NOT exposed — replaced by host_origin_protection=
+#   • No mount_path parameter — Starlette strips the /mcp prefix automatically
+#     when the sub-app is mounted, so the internal routes /sse and /messages/
+#     are correct relative paths already.
 #
-# Without the argument, mcp.settings.mount_path stays "/" (default) so
-# _normalize_path("/", "/messages/") → "/messages/".  The Inspector then
-# POSTs to https://<host>/messages/ which does not exist — hence the 404.
-#
-# Passing mount_path='/mcp' makes _normalize_path("/mcp", "/messages/")
-# return "/mcp/messages/" which the Inspector posts to correctly.
-#
-# DNS-REBINDING PROTECTION — must be disabled in production.
-# FastMCP 1.28+ auto-enables DNS-rebinding protection when host="127.0.0.1".
-# In production on Railway the Host header is the public Railway domain, not
-# localhost, so _every_ request (GET and POST) is silently rejected with 400
-# by TransportSecurityMiddleware before our MCPAuthMiddleware ever sees it.
-# Passing an explicit TransportSecuritySettings(enable_dns_rebinding_protection=False)
-# disables this check for our deployed server.
-mcp_app = mcp.sse_app(
-    mount_path="/mcp",
+# host_origin_protection=False:
+#   Disables the Host/Origin header validation guard that fastmcp 3.4.3
+#   enables by default. In production on Railway the Host header is the
+#   public Railway domain (not localhost), which triggers the guard and
+#   silently drops every request with 400. We disable it here and rely
+#   on our own MCPAuthMiddleware for access control.
+mcp_app = mcp.http_app(
+    transport="sse",
+    host_origin_protection=False,
 )
 # Auth middleware ONLY applies to the mounted mcp_app
 mcp_app.add_middleware(MCPAuthMiddleware)
 
-# Mount the fully configured MCP app under /mcp
+# Mount the fully configured MCP app under /mcp.
+# Starlette strips the /mcp prefix before forwarding to mcp_app, so the
+# internal routes /sse and /messages/ resolve to /mcp/sse and /mcp/messages/
+# as seen by the client. No path rewriting is needed.
 app.mount("/mcp", mcp_app)
 
 
