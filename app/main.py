@@ -130,10 +130,19 @@ class MCPAuthMiddleware:
 # Import the MCP server instance
 from app.mcp.server import mcp
 
-# sse_app(mount_path='/mcp') — tells the SDK to emit /mcp/messages/ in the
-# SSE handshake event so the Inspector POSTs to the correct URL.
-# DNS-rebinding protection is disabled via host='0.0.0.0' in server.py.
-mcp_app = mcp.sse_app(mount_path="/mcp")
+# sse_app() — NO mount_path argument.
+#
+# The SDK's SseServerTransport.connect_sse() builds the client-facing endpoint as:
+#   scope["root_path"] + self._endpoint
+#
+# When FastAPI mounts the sub-app at "/mcp", Starlette sets scope["root_path"]="/mcp".
+# self._endpoint defaults to "/messages/" (from settings.message_path).
+# Result: "/mcp" + "/messages/" = "/mcp/messages/"  ✓
+#
+# If we pass mount_path="/mcp", self._endpoint becomes "/mcp/messages/".
+# Result: "/mcp" + "/mcp/messages/" = "/mcp/mcp/messages/"  ✗  (double prefix)
+mcp_app = mcp.sse_app()
+
 
 # Wrap the mcp_app with the pure ASGI auth middleware.
 # Pure ASGI — zero buffering, SSE stream passes through unchanged.
